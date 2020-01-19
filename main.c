@@ -1,30 +1,35 @@
-#include "SDL/SDL.h"
+#include "ext/GLFW3/glfw3.h"
 
 int main(int argc, char** args) {
-    if (SDL_Init(SDL_INIT_EVERYTHING)) {
-        return 1;
+    GLFWwindow* window;
+
+    /* Initialize the library */
+    if (!glfwInit())
+        return -1;
+
+    /* Create a windowed mode window and its OpenGL context */
+    window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+    if (!window)
+    {
+        glfwTerminate();
+        return -1;
     }
 
-    SDL_Window* window = SDL_CreateWindow("sting", 
-                                          SDL_WINDOWPOS_CENTERED,
-                                          SDL_WINDOWPOS_CENTERED,
-                                          1080,
-                                          540,
-                                          SDL_WINDOW_OPENGL);
+    /* Make the window's context current */
+    glfwMakeContextCurrent(window);
 
-    int running = 1;
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-            case SDL_QUIT: running = 0; break;
-            }
-        }
+    /* Loop until the user closes the window */
+    while (!glfwWindowShouldClose(window))
+    {
+        /* Render here */
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        /* Swap front and back buffers */
+        glfwSwapBuffers(window);
+
+        /* Poll for and process events */
+        glfwPollEvents();
     }
-
-    SDL_DestroyWindow(window);
-
-    SDL_Quit();
 
     return 0;
 }
