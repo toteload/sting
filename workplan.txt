@@ -1,0 +1,5 @@
+[x] create a window without opengl
+[x] add opengl context
+[x] setup rendering code for drawing a texture across the whole screen
+[x] add cuda test code that writes to a texture
+[x] setup cuda opengl interop
