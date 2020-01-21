@@ -22,7 +22,14 @@ PFNGLBLITNAMEDFRAMEBUFFERPROC glBlitNamedFramebuffer;
 PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
 PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 
-void draw_test_image(cudaArray_const_t, vec4*, uint32_t, uint32_t);
+struct Keymap {
+    u32 w : 1;
+    u32 s : 1;
+    u32 a : 1;
+    u32 d : 1;
+};
+
+void draw_test_image(cudaArray_const_t, vec4*, vec3, uint32_t, uint32_t);
 
 int main(int argc, char** args) {
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -94,6 +101,10 @@ int main(int argc, char** args) {
     vec4* screen_buffer;
     cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
+    vec3 camera_pos = { 0.0f, 0.0f, 0.0f };
+
+    Keymap keymap = { 0 };
+
     int running = 1;
     while (running) {
         SDL_Event event;
@@ -101,14 +112,31 @@ int main(int argc, char** args) {
             switch (event.type) {
             case SDL_QUIT: { running = 0; } break;
             case SDL_KEYDOWN: {
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    running = 0;
+                switch (event.key.keysym.sym) {
+                case SDLK_ESCAPE: { running = 0; } break;
+                case SDLK_w: { keymap.w = 1; } break;
+                case SDLK_s: { keymap.s = 1; } break;
+                case SDLK_a: { keymap.a = 1; } break;
+                case SDLK_d: { keymap.d = 1; } break;
+                }
+            } break;
+            case SDL_KEYUP: {
+                switch (event.key.keysym.sym) {
+                case SDLK_w: { keymap.w = 0; } break;
+                case SDLK_s: { keymap.s = 0; } break;
+                case SDLK_a: { keymap.a = 0; } break;
+                case SDLK_d: { keymap.d = 0; } break;
                 }
             } break;
             }
         }
 
-        draw_test_image(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (keymap.w) { camera_pos.y -= 1.0f; }
+        if (keymap.s) { camera_pos.y += 1.0f; }
+        if (keymap.a) { camera_pos.x -= 1.0f; }
+        if (keymap.d) { camera_pos.x += 1.0f; }
+
+        draw_test_image(screen_array, screen_buffer, camera_pos, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         glBlitNamedFramebuffer(framebuffer, 
                                0, 0, 0, 

@@ -3,7 +3,7 @@
     accumulator
 [x] rays with sphere intersection, without camera just shoot straight
     ahead
-[ ] add interactive camera controls
+[x] add interactive camera controls
 [ ] point camera
 
 [x] create a window without opengl

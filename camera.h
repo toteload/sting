@@ -6,6 +6,4 @@ struct Camera {
     float azimuth; // range [0, 2*PI)
 
     vec3 u, v, w;
-
-    static Camera create(vec3 pos, vec3 up, vec3 at, float width, float height);
 };

@@ -14,10 +14,6 @@ union vec3 {
         const float l = length();
         return {x / l, y / l, z / l };
     }
-
-    __device__ vec3 operator-(vec3 o) {
-        return { x - o.x, y - o.y, z - o.z };
-    }
 };
 
 inline __device__ float dot(vec3 a, vec3 b) {
@@ -30,6 +26,10 @@ inline __device__ vec3 operator*(float s, vec3 v) {
 
 inline __device__ vec3 operator+(vec3 a, vec3 b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
+}
+
+inline __device__ vec3 operator-(vec3 a, vec3 b) {
+    return { a.x-b.x, a.y-b.y, a.z-b.z };
 }
 
 union vec4 {
@@ -87,15 +87,10 @@ struct Sphere {
         // us.
         if (t_far < 0.0f) { return 0; }
 
-        float t_closest;
-        if (t_near < 0.0f) {
-            t_closest = t_far;
-        } else {
-            t_closest = t_near;
-        }
+        const float t_closest = (t_near < 0.0f) ? t_far : t_near;
 
-        vec3 isect_on_sphere = ray.pos + t_closest * ray.dir;
-        vec3 n = (isect_on_sphere - pos).normalize();
+        const vec3 isect_on_sphere = ray.pos + t_closest * ray.dir;
+        const vec3 n = (isect_on_sphere - pos).normalize();
 
         record->t = t_closest;
         record->pos = pos;
