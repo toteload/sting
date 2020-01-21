@@ -1,7 +1,10 @@
 [x] a buffer for the raytracer to write results to, then every frame
     this buffer gets read from and written to the screen, basically an
     accumulator
-[ ] rays with simple sphere intersection
+[x] rays with sphere intersection, without camera just shoot straight
+    ahead
+[ ] add interactive camera controls
+[ ] point camera
 
 [x] create a window without opengl
 [x] add opengl context
