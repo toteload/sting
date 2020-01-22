@@ -1,11 +1,19 @@
+[ ] point lights, with shadow casts
+[ ] fps counter / ms per frame (using imgui maybe?)
+[ ] bvh
+
+-------------------------------------------------------------------------------
+[ ] add functionality to have the render buffer size and the screen size
+    to be different dimensions
+
+-------------------------------------------------------------------------------
+[x] point camera
 [x] a buffer for the raytracer to write results to, then every frame
     this buffer gets read from and written to the screen, basically an
     accumulator
 [x] rays with sphere intersection, without camera just shoot straight
     ahead
 [x] add interactive camera controls
-[ ] point camera
-
 [x] create a window without opengl
 [x] add opengl context
 [x] setup rendering code for drawing a texture across the whole screen

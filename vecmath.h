@@ -1,34 +1,46 @@
 #ifndef GUARD_VECMATH_H
 #define GUARD_VECMATH_H
 
+#define _USE_MATH_DEFINES // for PI constants
+#include <math.h>
+
 union vec3 {
     struct { float x, y, z; };
     struct { float r, g, b; };
     float fields[3];
 
-    __device__ float length() {
+    __host__ __device__ vec3() { }
+    __host__ __device__ vec3(float x, float y, float z): x(x), y(y), z(z) { }
+
+    __host__ __device__ float length() const {
         return sqrtf(x*x + y*y + z*z);
     }
 
-    __device__ vec3 normalize() {
+    __host__ __device__ vec3 normalize() const {
         const float l = length();
         return {x / l, y / l, z / l };
     }
 };
 
-inline __device__ float dot(vec3 a, vec3 b) {
+inline __host__ __device__ float dot(vec3 a, vec3 b) {
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
-inline __device__ vec3 operator*(float s, vec3 v) {
+inline __host__ __device__ vec3 cross(vec3 a, vec3 b) {
+    return { a.y*b.z - a.z*b.y,
+             a.z*b.x - a.x*b.z,
+             a.x*b.y - a.y*b.x };
+}
+
+inline __host__ __device__ vec3 operator*(float s, vec3 v) {
     return { s * v.x, s * v.y, s * v.z };
 }
 
-inline __device__ vec3 operator+(vec3 a, vec3 b) {
+inline __host__ __device__ vec3 operator+(vec3 a, vec3 b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
 }
 
-inline __device__ vec3 operator-(vec3 a, vec3 b) {
+inline __host__ __device__ vec3 operator-(vec3 a, vec3 b) {
     return { a.x-b.x, a.y-b.y, a.z-b.z };
 }
 
@@ -104,16 +116,74 @@ struct Sphere {
     }
 };
 
-inline __device__ void cartesian_to_spherical(vec3 v, float* inclination, float* azimuth) {
+inline __host__ __device__ void cartesian_to_spherical(vec3 v, float* inclination, float* azimuth) {
     vec3 n = v.normalize();
     *inclination = acos(n.y);
     *azimuth = atan(n.z / n.x);
 }
 
-inline __device__ vec3 spherical_to_cartesian(float inclination, float azimuth) {
+inline __host__ __device__ vec3 spherical_to_cartesian(float inclination, float azimuth) {
     return { sinf(inclination) * cosf(azimuth),
              cosf(inclination),
              sinf(inclination) * sinf(azimuth) };
 }
+
+template<typename T>
+inline T clamp(T x, T a, T b) {
+    return min(b, max(x, a));
+}
+
+struct PointCamera {
+    vec3 pos;
+
+    float inclination; // range [0, PI)
+    float azimuth; // range [0, 2*PI)
+
+    float width, height, plane_distance;
+
+    vec3 u, v, w;
+
+    PointCamera(vec3 pos, vec3 up, vec3 at, float width, float height, float plane_distance) {
+        const vec3 forward = (at - pos).normalize();
+
+        cartesian_to_spherical(forward, &inclination, &azimuth);
+
+        // This approach may be a bit naive, not sure
+        w = forward;
+        u = cross(w, up);
+        v = cross(w, u);
+
+        this->pos = pos;
+        this->width = width;
+        this->height = height;
+        this->plane_distance = plane_distance;
+    }
+
+    // NOTE
+    // This is at least a usable camera, but I feel like it's a bit weird when
+    // close to looking straight up or down. Also maybe initialize with an fov
+    // instead of a plane distance, that way it is a bit more intuitive.
+    void update_uvw() {
+        // make sure that inclination and azimuth are in a valid range
+        inclination = clamp<float>(inclination, 0.0001f, M_PI - 0.0001f);
+
+        //if (azimuth >= M_2_PI) { azimuth -= M_2_PI; }
+        //if (azimuth < 0.0f) { azimuth += M_2_PI; }
+
+        w = spherical_to_cartesian(inclination, azimuth);
+        u = cross(w, vec3(0.0f, 1.0f, 0.0f));
+        v = cross(w, u);
+    }
+
+    // u and v are in range (-1.0f, 1.0f)
+    __device__ Ray create_ray(float x, float y) { 
+        const float px = 0.5f * x * width;
+        const float py = 0.5f * y * height;
+
+        const vec3 p = plane_distance * w + px * u + py * v;
+
+        return { pos, p.normalize() };
+    }
+};
 
 #endif // GUARD_VECMATH_H

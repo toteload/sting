@@ -27,9 +27,13 @@ struct Keymap {
     u32 s : 1;
     u32 a : 1;
     u32 d : 1;
+    u32 up: 1;
+    u32 down: 1;
+    u32 left: 1;
+    u32 right: 1;
 };
 
-void draw_test_image(cudaArray_const_t, vec4*, vec3, uint32_t, uint32_t);
+void draw_test_image(cudaArray_const_t, vec4*, PointCamera, uint32_t, uint32_t);
 
 int main(int argc, char** args) {
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -101,7 +105,7 @@ int main(int argc, char** args) {
     vec4* screen_buffer;
     cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
-    vec3 camera_pos = { 0.0f, 0.0f, 0.0f };
+    PointCamera camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
 
     Keymap keymap = { 0 };
 
@@ -118,6 +122,10 @@ int main(int argc, char** args) {
                 case SDLK_s: { keymap.s = 1; } break;
                 case SDLK_a: { keymap.a = 1; } break;
                 case SDLK_d: { keymap.d = 1; } break;
+                case SDLK_UP: { keymap.up = 1; } break;
+                case SDLK_DOWN: { keymap.down = 1; } break;
+                case SDLK_LEFT: { keymap.left = 1; } break;
+                case SDLK_RIGHT: { keymap.right = 1; } break;
                 }
             } break;
             case SDL_KEYUP: {
@@ -126,17 +134,29 @@ int main(int argc, char** args) {
                 case SDLK_s: { keymap.s = 0; } break;
                 case SDLK_a: { keymap.a = 0; } break;
                 case SDLK_d: { keymap.d = 0; } break;
+                case SDLK_UP: { keymap.up = 0; } break;
+                case SDLK_DOWN: { keymap.down = 0; } break;
+                case SDLK_LEFT: { keymap.left = 0; } break;
+                case SDLK_RIGHT: { keymap.right = 0; } break;
                 }
             } break;
             }
         }
 
-        if (keymap.w) { camera_pos.y -= 1.0f; }
-        if (keymap.s) { camera_pos.y += 1.0f; }
-        if (keymap.a) { camera_pos.x -= 1.0f; }
-        if (keymap.d) { camera_pos.x += 1.0f; }
+        if (keymap.w) { camera.pos = camera.pos + camera.w; }
+        if (keymap.s) { camera.pos = camera.pos - camera.w; }
+        if (keymap.a) { camera.pos = camera.pos - camera.u; }
+        if (keymap.d) { camera.pos = camera.pos + camera.u; }
 
-        draw_test_image(screen_array, screen_buffer, camera_pos, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (keymap.up)   { camera.inclination -= 0.001f; }
+        if (keymap.down) { camera.inclination += 0.001f; }
+
+        if (keymap.left)  { camera.azimuth -= 0.001f; }
+        if (keymap.right) { camera.azimuth += 0.001f; }
+
+        camera.update_uvw();
+
+        draw_test_image(screen_array, screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         glBlitNamedFramebuffer(framebuffer, 
                                0, 0, 0, 
