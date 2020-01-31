@@ -1,6 +1,11 @@
-[ ] point lights, with shadow casts
+[ ] point lights, with shadow casts and simple lambertian shading
+[ ] bvh, with triangles
 [ ] fps counter / ms per frame (using imgui maybe?)
-[ ] bvh
+
+
+[ ] depth buffer output
+[ ] normal buffer output
+[ ] quad bvh
 
 -------------------------------------------------------------------------------
 [ ] add functionality to have the render buffer size and the screen size

@@ -26,13 +26,14 @@ struct Keymap {
     u32 right: 1;
 };
 
+void fill_buffer(vec4* screen_buffer, PointCamera camera, uint32_t width, uint32_t height);
 void draw_test_image(cudaArray_const_t, vec4*, PointCamera, uint32_t, uint32_t);
 
 int main_new(int, char**);
 int main_simple(int, char**);
 
 int main(int argc, char** args) {
-    return main_simple(argc, args);
+    return main_new(argc, args);
 }
 
 int main_simple(int argc, char** args) {
@@ -68,7 +69,6 @@ int main_simple(int argc, char** args) {
 
     // ------------------------------------------------------------------------
 
-#if 1
     const char* vertex_shader_source =
         "#version 330\n"
         "layout (location = 0) in vec2 pos;\n"
@@ -82,19 +82,21 @@ int main_simple(int argc, char** args) {
     const char* fragment_shader_source =
         "#version 330\n"
         "in vec2 uv;\n"
+        "uniform sampler2D tex;\n"
         "void main() {\n"
-        "    gl_FragColor = vec4(1.0f, 1.0f, 0.0f, 1.0f);\n"
+        "    float v = texture(tex, uv).r;\n"
+        "    gl_FragColor = texture(tex, uv);\n"
         "}\n";
 
     // position and uv information for 6 vertices
     const float vertices[] = {
-        -0.9f, -0.9f, 0.0f, 0.0f,
-         0.9f, -0.9f, 1.0f, 0.0f,
-         0.9f,  0.9f, 1.0f, 1.0f,
+        -1.0f,  1.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 1.0f,
 
-        -0.9f, -0.9f, 0.0f, 0.0f,
-         0.9f,  0.9f, 1.0f, 1.0f,
-        -0.9f,  0.9f, 1.0f, 1.0f,
+        -1.0f,  1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 1.0f,
     };
 
     GLint status;
@@ -152,7 +154,30 @@ int main_simple(int argc, char** args) {
 
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2*sizeof(float)));
     glEnableVertexAttribArray(1);
-#endif
+
+    GLuint gl_screen_texture;
+    glGenTextures(1, &gl_screen_texture);
+    glBindTexture(GL_TEXTURE_2D, gl_screen_texture);
+    glActiveTexture(GL_TEXTURE0);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+
+    cudaGraphicsResource* cuda_screen_texture;
+    cudaGraphicsGLRegisterImage(&cuda_screen_texture, gl_screen_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
+
+    cudaArray* cuda_screen_array;
+    cudaGraphicsMapResources(1, &cuda_screen_texture, 0);
+    cudaGraphicsSubResourceGetMappedArray(&cuda_screen_array, cuda_screen_texture, 0, 0);
+    cudaGraphicsUnmapResources(1, &cuda_screen_texture, 0);
+
+    // In CUDA render to this buffer, we will map this to the OpenGL texture
+    vec4* cuda_screen_buffer;
+    cudaMalloc(&cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
     // ------------------------------------------------------------------------
 
@@ -208,6 +233,10 @@ int main_simple(int argc, char** args) {
 
         glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+
+        cudaMemcpyToArray(cuda_screen_array, 0, 0, cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4),
+                          cudaMemcpyDeviceToDevice);
+        fill_buffer(cuda_screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -353,8 +382,6 @@ int main_new(int argc, char** args) {
         if (keymap.right) { camera.azimuth += 0.001f; }
 
         camera.update_uvw();
-
-        //cudaMemcpy(host_screen_buffer, screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4), cudaMemcpyDeviceToHost);
 
         draw_test_image(screen_array, screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
         glBlitNamedFramebuffer(framebuffer, 

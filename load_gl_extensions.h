@@ -17,6 +17,7 @@ PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
 PFNGLBUFFERDATAPROC glBufferData;
 PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog;
 PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog;
+PFNGLACTIVETEXTUREPROC glActiveTexture;
 
 uint32_t load_gl_extensions() {
     glCreateShader = (PFNGLCREATESHADERPROC)SDL_GL_GetProcAddress("glCreateShader");
@@ -75,6 +76,9 @@ uint32_t load_gl_extensions() {
 
     glGetProgramInfoLog = (PFNGLGETPROGRAMINFOLOGPROC)SDL_GL_GetProcAddress("glGetProgramInfoLog");
     if (!glGetProgramInfoLog) { return 0; }
+
+    glActiveTexture = (PFNGLACTIVETEXTUREPROC)SDL_GL_GetProcAddress("glActiveTexture");
+    if (!glActiveTexture) { return 0; }
 
     return 1;
 }

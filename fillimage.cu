@@ -63,6 +63,12 @@ __global__ void blit_to_screen(vec4* buffer, uint32_t width, uint32_t height) {
     surf2Dwrite<vec4>(buffer[id], screen_surface, x * sizeof(vec4), y, cudaBoundaryModeZero);
 }
 
+void fill_buffer(vec4* screen_buffer, PointCamera camera, uint32_t width, uint32_t height) {
+    dim3 threads = dim3(16, 16, 1);
+    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
+    fill_screen_buffer<<<blocks, threads>>>(camera, screen_buffer, width, height);
+}
+
 void draw_test_image(cudaArray_const_t array, vec4* screen_buffer, 
                      PointCamera camera,
                      uint32_t width, uint32_t height) 
@@ -74,3 +80,6 @@ void draw_test_image(cudaArray_const_t array, vec4* screen_buffer,
     blit_to_screen<<<blocks, threads>>>(screen_buffer, width, height);
     cudaDeviceSynchronize();
 }
+
+// ----------------------------------------------------------------------------
+
