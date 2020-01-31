@@ -3,7 +3,6 @@
 
 surface<void, cudaSurfaceType2D> screen_surface;
 
-
 __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t width, uint32_t height) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
