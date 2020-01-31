@@ -27,13 +27,13 @@ struct Keymap {
 };
 
 void fill_buffer(vec4* screen_buffer, PointCamera camera, uint32_t width, uint32_t height);
-void draw_test_image(cudaArray_const_t, vec4*, PointCamera, uint32_t, uint32_t);
+void render_buffer_to_screen(cudaArray_const_t array, vec4* buffer, uint32_t width, uint32_t height);
 
 int main_new(int, char**);
 int main_simple(int, char**);
 
 int main(int argc, char** args) {
-    return main_new(argc, args);
+    return main_simple(argc, args);
 }
 
 int main_simple(int argc, char** args) {
@@ -234,8 +234,10 @@ int main_simple(int argc, char** args) {
         glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        cudaMemcpyToArray(cuda_screen_array, 0, 0, cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4),
-                          cudaMemcpyDeviceToDevice);
+        cudaMemcpy2DToArray(cuda_screen_array, 0, 0, cuda_screen_buffer,
+                            SCREEN_WIDTH * sizeof(vec4), SCREEN_WIDTH * sizeof(vec4), SCREEN_HEIGHT,
+                            cudaMemcpyDeviceToDevice);
+
         fill_buffer(cuda_screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -383,7 +385,9 @@ int main_new(int argc, char** args) {
 
         camera.update_uvw();
 
-        draw_test_image(screen_array, screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
+        fill_buffer(screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
+        render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+
         glBlitNamedFramebuffer(framebuffer, 
                                0, 0, 0, 
                                SCREEN_WIDTH, SCREEN_HEIGHT, 0, 
