@@ -1,0 +1,3 @@
+There is some noise on the spheres when it comes to shadow casting. This is
+also dependent on the value of EPSILON when offsetting from the surface, but 
+I'm not entirely sure what causes it :|

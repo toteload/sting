@@ -68,24 +68,71 @@ struct HitRecord {
     }
 };
 
+struct Triangle {
+    vec3 v0, v1, v2;
+
+    __device__ void intersect(Ray ray, HitRecord* record) const {
+        record->hit = 0;
+
+        const float EPSILON = 0.0001f;
+
+        const vec3 e0 = v1 - v0;
+        const vec3 e1 = v2 - v0;
+
+        const vec3 h = cross(ray.dir, e1);
+        const float a = dot(e0, h);
+
+        if (a > (-EPSILON) && a < EPSILON) {
+            return;
+        }
+
+        const float f = 1.0f / a;
+        const vec3 s = ray.pos - v0;
+        const float u = f * dot(s, h);
+        if (u < 0.0f || u > 1.0f) {
+            return;
+        }
+
+        const vec3 q = cross(s, e0);
+        const float v = f * dot(ray.dir, q);
+        if (v < 0.0f || (u + v) > 1.0f) {
+            return;
+        }
+
+        const float t = f * dot(e1, q);
+
+        if (t < EPSILON) {
+            return;
+        }
+
+        vec3 n = cross(e0, e1).normalize();
+        if (dot(n, ray.dir) > 0.0f) { n = -1.0f * n; }
+
+        record->hit = 1;
+        record->pos = ray.pos + t * ray.dir;
+        record->normal = n;
+        record->t = t;
+    }
+};
+
 struct Sphere {
     vec3 pos;
     float radius;
 
     __device__ void intersect(Ray ray, HitRecord* record) const {
+        record->hit = 0;
+
         const vec3 o = ray.pos - pos;
         const float b = dot(o, ray.dir);
         const float c = dot(o, o) - radius * radius;
 
         if (b > 0.0f && c > 0.0f) {
-            record->hit = 0;
             return;
         }
 
         const float d = b * b - c;
 
         if (d < 0.0f) {
-            record->hit = 0;
             return;
         }
 
@@ -107,7 +154,6 @@ struct Sphere {
         // both are negative which means that the sphere intersection is behind
         // us.
         if (t_far < 0.0f) { 
-            record->hit = 0;
             return; 
         }
 

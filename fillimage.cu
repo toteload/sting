@@ -3,12 +3,23 @@
 
 surface<void, cudaSurfaceType2D> screen_surface;
 
-__device__ void intersect(Sphere const * spheres, uint32_t sphere_count, Ray ray, HitRecord* out) {
+__device__ void intersect(Sphere const * spheres, uint32_t sphere_count, 
+                          Triangle const * triangles, uint32_t triangle_count,
+                          Ray ray, HitRecord* out) 
+{
     HitRecord rec = HitRecord::no_hit();
 
     for (uint32_t i = 0; i < sphere_count; i++) {
         HitRecord r;
         spheres[i].intersect(ray, &r);
+        if (r.hit && (!rec.hit || r.t < rec.t)) {
+            rec = r;
+        }
+    }
+
+    for (uint32_t i = 0; i < triangle_count; i++) {
+        HitRecord r;
+        triangles[i].intersect(ray, &r);
         if (r.hit && (!rec.hit || r.t < rec.t)) {
             rec = r;
         }
@@ -37,15 +48,20 @@ __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t wi
 
     const vec3 point_light = { 0.0f, 1000.0f, 0.0f };
 
-    const Sphere spheres[4] = {
+    const Sphere spheres[] = {
         { { 0.0f, 0.0f, -200.0f }, 100.f },
         { { 0.0f, 0.0f,  200.0f }, 100.f },
         { { 0.0f, 100.0f, -200.0f }, 100.f },
         { { 100.0f, 0.0f, -200.0f }, 100.f },
     };
 
+    const Triangle triangles[] = {
+        { { -1000.0f, 0.0f, -1000.0f }, { 1000.0f, 0.0f, -1000.0f }, { 1000.0f, 0.0f, 1000.0f } },
+        { { -1000.0f, 0.0f, -1000.0f }, { -1000.0f, 0.0f, 1000.0f }, { 1000.0f, 0.0f, 1000.0f } },
+    };
+
     HitRecord rec;
-    intersect(spheres, 4, ray, &rec);
+    intersect(spheres, 4, triangles, 2, ray, &rec);
 
     const vec4 black = { 0.0f, 0.0f, 0.0f, 1.0f };
 
@@ -55,10 +71,10 @@ __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t wi
 
         const vec3 to_light = (point_light - rec.pos).normalize();
 
-        Ray shadow_ray = { rec.pos + EPSILON * rec.normal, 1.0f * to_light };
+        Ray shadow_ray = { rec.pos + EPSILON * rec.normal, to_light };
 
         HitRecord shadow_rec;
-        intersect(spheres, 4, shadow_ray, &shadow_rec);
+        intersect(spheres, 4, triangles, 2, shadow_ray, &shadow_rec);
 
         const uint32_t is_occluded = shadow_rec.hit && ((rec.pos - point_light).length() > shadow_rec.t);
 
