@@ -10,6 +10,17 @@
 #include "load_gl_extensions.h"
 #include "vecmath.h"
 
+inline cudaError cuda_err_check(cudaError err, const char* file, int line, bool abort) {
+    if (err != cudaSuccess) {
+        fprintf(stderr, "[cuda check failed] error code: %d, message: %s, file: %s, line: %d\n",
+                err, cudaGetErrorString(err), file, line);
+    }
+
+    return err;
+}
+
+#define CUDA_CHECK(...) cuda_err_check(__VA_ARGS__, __FILE__, __LINE__, false)
+
 typedef uint32_t u32;
 
 const u32 SCREEN_WIDTH  = 960;
@@ -168,16 +179,18 @@ int main_simple(int argc, char** args) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
 
     cudaGraphicsResource* cuda_screen_texture;
-    cudaGraphicsGLRegisterImage(&cuda_screen_texture, gl_screen_texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
+    CUDA_CHECK(cudaGraphicsGLRegisterImage(&cuda_screen_texture, 
+                                           gl_screen_texture, GL_TEXTURE_2D, 
+                                           cudaGraphicsRegisterFlagsWriteDiscard));
 
     cudaArray* cuda_screen_array;
-    cudaGraphicsMapResources(1, &cuda_screen_texture, 0);
-    cudaGraphicsSubResourceGetMappedArray(&cuda_screen_array, cuda_screen_texture, 0, 0);
-    cudaGraphicsUnmapResources(1, &cuda_screen_texture, 0);
+    CUDA_CHECK(cudaGraphicsMapResources(1, &cuda_screen_texture, 0));
+    CUDA_CHECK(cudaGraphicsSubResourceGetMappedArray(&cuda_screen_array, cuda_screen_texture, 0, 0));
+    CUDA_CHECK(cudaGraphicsUnmapResources(1, &cuda_screen_texture, 0));
 
     // In CUDA render to this buffer, we will map this to the OpenGL texture
     vec4* cuda_screen_buffer;
-    cudaMalloc(&cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+    CUDA_CHECK(cudaMalloc(&cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
 
     // ------------------------------------------------------------------------
 
@@ -234,9 +247,9 @@ int main_simple(int argc, char** args) {
         glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        cudaMemcpy2DToArray(cuda_screen_array, 0, 0, cuda_screen_buffer,
-                            SCREEN_WIDTH * sizeof(vec4), SCREEN_WIDTH * sizeof(vec4), SCREEN_HEIGHT,
-                            cudaMemcpyDeviceToDevice);
+        CUDA_CHECK(cudaMemcpy2DToArray(cuda_screen_array, 0, 0, cuda_screen_buffer,
+                                       SCREEN_WIDTH * sizeof(vec4), SCREEN_WIDTH * sizeof(vec4), SCREEN_HEIGHT,
+                                       cudaMemcpyDeviceToDevice));
 
         fill_buffer(cuda_screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
 
