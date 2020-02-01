@@ -56,28 +56,37 @@ struct Ray {
 };
 
 struct HitRecord {
+    uint32_t hit;
     vec3 pos;
     vec3 normal;
     float t;
+
+    __device__ static HitRecord no_hit() {
+        HitRecord rec;
+        rec.hit = 0;
+        return rec;
+    }
 };
 
 struct Sphere {
     vec3 pos;
     float radius;
 
-    __device__ uint32_t intersect(Ray ray, HitRecord* record) {
+    __device__ void intersect(Ray ray, HitRecord* record) const {
         const vec3 o = ray.pos - pos;
         const float b = dot(o, ray.dir);
         const float c = dot(o, o) - radius * radius;
 
         if (b > 0.0f && c > 0.0f) {
-            return 0;
+            record->hit = 0;
+            return;
         }
 
         const float d = b * b - c;
 
         if (d < 0.0f) {
-            return 0;
+            record->hit = 0;
+            return;
         }
 
         const float ds = sqrtf(d);
@@ -97,22 +106,24 @@ struct Sphere {
         // If t_far is smaller than 0, then t_near is also smaller than 0 so
         // both are negative which means that the sphere intersection is behind
         // us.
-        if (t_far < 0.0f) { return 0; }
+        if (t_far < 0.0f) { 
+            record->hit = 0;
+            return; 
+        }
 
         const float t_closest = (t_near < 0.0f) ? t_far : t_near;
 
         const vec3 isect_on_sphere = ray.pos + t_closest * ray.dir;
         const vec3 n = (isect_on_sphere - pos).normalize();
 
-        record->t = t_closest;
-        record->pos = pos;
-        record->normal = n;
-
         // NOTE
         // for now just report a true hit if at least one of the t is positive
         // this could also mean we are inside the sphere however.
 
-        return 1;
+        record->hit = 1;
+        record->pos = isect_on_sphere;
+        record->normal = n;
+        record->t = t_closest;
     }
 };
 

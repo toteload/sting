@@ -3,6 +3,20 @@
 
 surface<void, cudaSurfaceType2D> screen_surface;
 
+__device__ void intersect(Sphere const * spheres, uint32_t sphere_count, Ray ray, HitRecord* out) {
+    HitRecord rec = HitRecord::no_hit();
+
+    for (uint32_t i = 0; i < sphere_count; i++) {
+        HitRecord r;
+        spheres[i].intersect(ray, &r);
+        if (r.hit && (!rec.hit || r.t < rec.t)) {
+            rec = r;
+        }
+    }
+
+    *out = rec;
+}
+
 __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t width, uint32_t height) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -21,29 +35,40 @@ __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t wi
 
     // Do ray sphere intersection
 
-    Sphere spheres[4] = {
+    const vec3 point_light = { 0.0f, 1000.0f, 0.0f };
+
+    const Sphere spheres[4] = {
         { { 0.0f, 0.0f, -200.0f }, 100.f },
         { { 0.0f, 0.0f,  200.0f }, 100.f },
         { { 0.0f, 100.0f, -200.0f }, 100.f },
         { { 100.0f, 0.0f, -200.0f }, 100.f },
     };
 
-    HitRecord hitrecord;
-    uint32_t hit = 0;
-    for (int i = 0; i < 4; i++) {
-        HitRecord record;
-        uint32_t sphere_hit = spheres[i].intersect(ray, &record);
-        if (sphere_hit && (!hit || record.t < hitrecord.t)) { 
-            hit = 1; 
-            hitrecord = record;
-        }
-    }
+    HitRecord rec;
+    intersect(spheres, 4, ray, &rec);
+
+    const vec4 black = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     vec4 c;
-    if (hit) {
-        c = { hitrecord.normal.x, hitrecord.normal.y, hitrecord.normal.z, 1.0f };
+    if (rec.hit) {
+        const float EPSILON = 0.01f; // just some value
+
+        const vec3 to_light = (point_light - rec.pos).normalize();
+
+        Ray shadow_ray = { rec.pos + EPSILON * rec.normal, 1.0f * to_light };
+
+        HitRecord shadow_rec;
+        intersect(spheres, 4, shadow_ray, &shadow_rec);
+
+        const uint32_t is_occluded = shadow_rec.hit && ((rec.pos - point_light).length() > shadow_rec.t);
+
+        if (is_occluded) {
+            c = { 0.0f, 0.0f, 0.0f, 1.0f };
+        } else {
+            const float v = dot(to_light, rec.normal);
+            c = { v, v, v, 1.0f };
+        }
     } else {
-        const vec4 black = { 0.0f, 0.0f, 0.0f, 1.0f };
         c = black;
     }
 

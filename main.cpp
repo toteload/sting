@@ -44,7 +44,7 @@ int main_new(int, char**);
 int main_simple(int, char**);
 
 int main(int argc, char** args) {
-    return main_simple(argc, args);
+    return main_new(argc, args);
 }
 
 int main_simple(int argc, char** args) {
@@ -346,7 +346,7 @@ int main_new(int argc, char** args) {
     vec4* screen_buffer;
     cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
-    PointCamera camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
+    PointCamera camera(vec3(-1000, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
     Keymap keymap = { 0 };
 
     //vec4* host_screen_buffer = malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
@@ -399,6 +399,7 @@ int main_new(int argc, char** args) {
         camera.update_uvw();
 
         fill_buffer(screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);
+
         render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         glBlitNamedFramebuffer(framebuffer, 

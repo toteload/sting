@@ -1,7 +1,6 @@
-[ ] point lights, with shadow casts and simple lambertian shading
+[ ] add triangle intersection
 [ ] bvh, with triangles
 [ ] fps counter / ms per frame (using imgui maybe?)
-
 
 [ ] depth buffer output
 [ ] normal buffer output
@@ -12,6 +11,7 @@
     to be different dimensions
 
 -------------------------------------------------------------------------------
+[x] point lights, with shadow casts and simple lambertian shading
 [x] point camera
 [x] a buffer for the raytracer to write results to, then every frame
     this buffer gets read from and written to the screen, basically an
