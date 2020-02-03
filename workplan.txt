@@ -1,6 +1,8 @@
 [ ] bvh, with triangles
 [ ] fps counter / ms per frame (using imgui maybe?)
 
+[ ] improve the camera with fov instead of plane distance
+
 [ ] depth buffer output
 [ ] normal buffer output
 [ ] quad bvh

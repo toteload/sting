@@ -1,14 +1,25 @@
 #include "ext/SDL2-2.0.10/include/SDL.h"
 #include <stdio.h>
 #include <stdint.h>
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#define NOMINMAX
 #include <Windows.h>
 #include <GL/gl.h>
 #include "glext.h"
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 
+#define cast(Type, Expr) ((Type)(Expr))
+
 #include "load_gl_extensions.h"
 #include "vecmath.h"
+#include "bvh.h"
+#include "bvh.cpp"
+
+// Including this increases the compile time by a lot :(
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
 
 inline cudaError cuda_err_check(cudaError err, const char* file, int line, bool abort) {
     if (err != cudaSuccess) {
@@ -35,6 +46,12 @@ struct Keymap {
     u32 down: 1;
     u32 left: 1;
     u32 right: 1;
+
+    static Keymap empty() {
+        Keymap map;
+        memset(&map, 0, sizeof(map));
+        return map;
+    }
 };
 
 void fill_buffer(vec4* screen_buffer, PointCamera camera, uint32_t width, uint32_t height);
@@ -195,7 +212,7 @@ int main_simple(int argc, char** args) {
     // ------------------------------------------------------------------------
 
     PointCamera camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
-    Keymap keymap = { 0 };
+    Keymap keymap = Keymap::empty();
 
     int running = 1;
     while (running) {
@@ -347,7 +364,10 @@ int main_new(int argc, char** args) {
     cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
     PointCamera camera(vec3(-1000, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
-    Keymap keymap = { 0 };
+    Keymap keymap = Keymap::empty();
+
+    std::vector<vec3> vertices;
+    std::vector<uvec3> triangles;
 
     //vec4* host_screen_buffer = malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 

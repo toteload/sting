@@ -20,6 +20,10 @@ union vec3 {
         const float l = length();
         return {x / l, y / l, z / l };
     }
+
+    __host__ __device__ float operator[](size_t i) const {
+        return fields[i];
+    }
 };
 
 inline __host__ __device__ float dot(vec3 a, vec3 b) {
@@ -44,7 +48,7 @@ inline __host__ __device__ vec3 operator-(vec3 a, vec3 b) {
     return { a.x-b.x, a.y-b.y, a.z-b.z };
 }
 
-union vec4 {
+union alignas(16) vec4 {
     struct { float x, y, z, w; };
     struct { float r, g, b, a; };
     float fields[4];
@@ -56,8 +60,8 @@ struct Ray {
 };
 
 struct HitRecord {
-    uint32_t hit;
     vec3 pos;
+    uint32_t hit;
     vec3 normal;
     float t;
 
@@ -187,7 +191,7 @@ inline __host__ __device__ vec3 spherical_to_cartesian(float inclination, float 
 
 template<typename T>
 inline T clamp(T x, T a, T b) {
-    return min(b, max(x, a));
+    return std::min(b, std::max(x, a));
 }
 
 struct PointCamera {

@@ -67,7 +67,7 @@ __global__ void fill_screen_buffer(PointCamera camera, vec4* buffer, uint32_t wi
 
     vec4 c;
     if (rec.hit) {
-        const float EPSILON = 0.01f; // just some value
+        const float EPSILON = 0.00001f; // just some value
 
         const vec3 to_light = (point_light - rec.pos).normalize();
 
