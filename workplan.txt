@@ -1,16 +1,60 @@
-[ ] bvh, with triangles
-[ ] fps counter / ms per frame (using imgui maybe?)
+sting 0.1
+-------------------------------------------------------------------------------
+This version is meant to have a raytracer that can actually render something
+at reasonably interactive frame rate.
+It will add BVH acceleration structure and loading of triangle
+meshes, with intersection of the BVH on the GPU.
 
-[ ] improve the camera with fov instead of plane distance
+[x] bvh building and intersection
+[x] loading triangle meshes
+[x] uploading triangle mesh bvh to gpu and intersection on the gpu
 
-[ ] depth buffer output
-[ ] normal buffer output
-[ ] quad bvh
+[ ] cleanup everything once the features for this version have been
+    implemented
 
+
+sting 0.2
+-------------------------------------------------------------------------------
+
+
+sting 0.3
+-------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+Must have features
+-------------------------------------------------------------------------------
+
+
+
+
+
+
+Just random stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
 [ ] add functionality to have the render buffer size and the screen size
     to be different dimensions
+[ ] optimize AABB with SIMD
+[ ] quad bvh
+[ ] fps counter / ms per frame (using imgui maybe?)
+[ ] improve the camera with fov instead of plane distance
+[ ] different materials: diffuse and mirror to start with
+[ ] wavefront gpu implementation
+[ ] DOF camera
+[ ] variance reduction techniques: russian roulette, next event estimation
+[ ] add Disney BRDF (looks pretty?)
+[ ] random number generation on the GPU or some sort of pseudo random sampling
+    BLUE NOISE!
 
+
+
+DONE
 -------------------------------------------------------------------------------
 [x] add triangle intersection
 [x] point lights, with shadow casts and simple lambertian shading

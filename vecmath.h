@@ -3,6 +3,7 @@
 
 #define _USE_MATH_DEFINES // for PI constants
 #include <math.h>
+#include <algorithm>
 
 union vec3 {
     struct { float x, y, z; };
@@ -10,6 +11,7 @@ union vec3 {
     float fields[3];
 
     __host__ __device__ vec3() { }
+    __host__ __device__ vec3(float a): x(a), y(a), z(a) { }
     __host__ __device__ vec3(float x, float y, float z): x(x), y(y), z(z) { }
 
     __host__ __device__ float length() const {
@@ -24,7 +26,53 @@ union vec3 {
     __host__ __device__ float operator[](size_t i) const {
         return fields[i];
     }
+
+    __host__ __device__ vec3 inverse() const {
+        return { 1.0f / x, 1.0f / y, 1.0f / z };
+    }
 };
+
+template<typename T>
+__device__ const T& min(const T& a, const T& b) {
+    return (a < b) ? a : b;
+}
+
+template<typename T>
+__device__ const T& max(const T& a, const T& b) {
+    return (a > b) ? a : b;
+}
+
+template<typename T>
+__device__ constexpr T min_recurse(const T* begin, const T* end) {
+    // I would rather have this be an if/else but a constexpr function may only
+    // have one return statement
+    return (begin + 1 == end) ? (*begin) : min(*begin, min_recurse(begin + 1, end));
+}
+
+template<typename T>
+__device__ constexpr T min(std::initializer_list<T> l) {
+    return min_recurse(l.begin(), l.end());
+}
+
+template<typename T>
+__device__ constexpr T max_recurse(const T* begin, const T* end) {
+    return (begin + 1 == end) ? (*begin) : max(*begin, max_recurse(begin + 1, end));
+}
+
+template<typename T>
+__device__ constexpr T max(std::initializer_list<T> l) {
+    return max_recurse(l.begin(), l.end());
+}
+
+// For each element select the minimum of the two vectors
+inline __device__ vec3 min_elements(vec3 a, vec3 b) {
+    return { min(a.x, b.x), min(a.y, b.y), min(a.z, b.z) };
+}
+
+// For each element select the maximum of the two vectors
+inline __device__ vec3 max_elements(vec3 a, vec3 b) {
+    return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
+}
 
 inline __host__ __device__ float dot(vec3 a, vec3 b) {
     return a.x*b.x + a.y*b.y + a.z*b.z;
@@ -40,6 +88,10 @@ inline __host__ __device__ vec3 operator*(float s, vec3 v) {
     return { s * v.x, s * v.y, s * v.z };
 }
 
+inline __host__ __device__ vec3 operator*(vec3 a, vec3 b) {
+    return { a.x * b.x, a.y * b.y, a.z * b.z };
+}
+
 inline __host__ __device__ vec3 operator+(vec3 a, vec3 b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
 }
@@ -52,6 +104,9 @@ union alignas(16) vec4 {
     struct { float x, y, z, w; };
     struct { float r, g, b, a; };
     float fields[4];
+
+    __host__ __device__ vec4(float v) : x(v), y(v), z(v), w(v) { }
+    __host__ __device__ vec4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) { }
 };
 
 struct Ray {
@@ -61,121 +116,100 @@ struct Ray {
 
 struct HitRecord {
     vec3 pos;
-    uint32_t hit;
-    vec3 normal;
     float t;
-
-    __device__ static HitRecord no_hit() {
-        HitRecord rec;
-        rec.hit = 0;
-        return rec;
-    }
+    vec3 normal;
 };
 
-struct Triangle {
-    vec3 v0, v1, v2;
+inline __device__ vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
+    const vec3 e0 = v1 - v0;
+    const vec3 e1 = v2 - v0;
 
-    __device__ void intersect(Ray ray, HitRecord* record) const {
-        record->hit = 0;
+    return cross(e0, e1).normalize();
+}
 
-        const float EPSILON = 0.0001f;
+inline __device__ bool triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2, float* t_out) {
+    const float EPSILON = 0.000001f;
 
-        const vec3 e0 = v1 - v0;
-        const vec3 e1 = v2 - v0;
+    const vec3 e0 = v1 - v0;
+    const vec3 e1 = v2 - v0;
 
-        const vec3 h = cross(ray.dir, e1);
-        const float a = dot(e0, h);
+    const vec3 h = cross(ray.dir, e1);
+    const float a = dot(e0, h);
 
-        if (a > (-EPSILON) && a < EPSILON) {
-            return;
-        }
-
-        const float f = 1.0f / a;
-        const vec3 s = ray.pos - v0;
-        const float u = f * dot(s, h);
-        if (u < 0.0f || u > 1.0f) {
-            return;
-        }
-
-        const vec3 q = cross(s, e0);
-        const float v = f * dot(ray.dir, q);
-        if (v < 0.0f || (u + v) > 1.0f) {
-            return;
-        }
-
-        const float t = f * dot(e1, q);
-
-        if (t < EPSILON) {
-            return;
-        }
-
-        vec3 n = cross(e0, e1).normalize();
-        if (dot(n, ray.dir) > 0.0f) { n = -1.0f * n; }
-
-        record->hit = 1;
-        record->pos = ray.pos + t * ray.dir;
-        record->normal = n;
-        record->t = t;
+    if (a > (-EPSILON) && a < EPSILON) {
+        return false;
     }
-};
 
-struct Sphere {
-    vec3 pos;
-    float radius;
-
-    __device__ void intersect(Ray ray, HitRecord* record) const {
-        record->hit = 0;
-
-        const vec3 o = ray.pos - pos;
-        const float b = dot(o, ray.dir);
-        const float c = dot(o, o) - radius * radius;
-
-        if (b > 0.0f && c > 0.0f) {
-            return;
-        }
-
-        const float d = b * b - c;
-
-        if (d < 0.0f) {
-            return;
-        }
-
-        const float ds = sqrtf(d);
-
-        const float t0 = -b - ds;
-        const float t1 = -b + ds;
-
-        float t_near, t_far;
-        if (t0 > t1) { 
-            t_near = t1; 
-            t_far = t0; 
-        } else { 
-            t_near = t0; 
-            t_far = t1; 
-        }
-
-        // If t_far is smaller than 0, then t_near is also smaller than 0 so
-        // both are negative which means that the sphere intersection is behind
-        // us.
-        if (t_far < 0.0f) { 
-            return; 
-        }
-
-        const float t_closest = (t_near < 0.0f) ? t_far : t_near;
-
-        const vec3 isect_on_sphere = ray.pos + t_closest * ray.dir;
-        const vec3 n = (isect_on_sphere - pos).normalize();
-
-        // NOTE
-        // for now just report a true hit if at least one of the t is positive
-        // this could also mean we are inside the sphere however.
-
-        record->hit = 1;
-        record->pos = isect_on_sphere;
-        record->normal = n;
-        record->t = t_closest;
+    const float f = 1.0f / a;
+    const vec3 s = ray.pos - v0;
+    const float u = f * dot(s, h);
+    if (u < 0.0f || u > 1.0f) {
+        return false;
     }
-};
+
+    const vec3 q = cross(s, e0);
+    const float v = f * dot(ray.dir, q);
+    if (v < 0.0f || (u + v) > 1.0f) {
+        return false;
+    }
+
+    const float t = f * dot(e1, q);
+
+    if (t < EPSILON) {
+        return false;
+    }
+
+    *t_out = t;
+
+    return true;
+}
+
+inline bool sphere_intersect(Ray ray, vec3 center, float radius, float* t_out) {
+    const vec3 o = ray.pos - center;
+    const float b = dot(o, ray.dir);
+    const float c = dot(o, o) - radius * radius;
+
+    if (b > 0.0f && c > 0.0f) {
+        return false;
+    }
+
+    const float d = b * b - c;
+
+    if (d < 0.0f) {
+        return false;
+    }
+
+    const float ds = sqrtf(d);
+
+    const float t0 = -b - ds;
+    const float t1 = -b + ds;
+
+    float t_near, t_far;
+    if (t0 > t1) { 
+        t_near = t1; 
+        t_far = t0; 
+    } else { 
+        t_near = t0; 
+        t_far = t1; 
+    }
+
+    // If t_far is smaller than 0, then t_near is also smaller than 0 so
+    // both are negative which means that the sphere intersection is behind
+    // us.
+    if (t_far < 0.0f) { 
+        return false;
+    }
+
+    const float t_closest = (t_near < 0.0f) ? t_far : t_near;
+
+    // NOTE
+    // for now just report a true hit if at least one of the t is positive
+    // this could also mean we are inside the sphere however.
+
+    *t_out = t_closest;
+
+    return true;
+}
 
 inline __host__ __device__ void cartesian_to_spherical(vec3 v, float* inclination, float* azimuth) {
     vec3 n = v.normalize();
@@ -236,10 +270,10 @@ struct PointCamera {
         v = cross(w, u);
     }
 
-    // u and v are in range (-1.0f, 1.0f)
-    __device__ Ray create_ray(float x, float y) { 
-        const float px = 0.5f * x * width;
-        const float py = 0.5f * y * height;
+    // uu and vv are in range (-1.0f, 1.0f)
+    __device__ Ray create_ray(float uu, float vv) { 
+        const float px = 0.5f * uu * width;
+        const float py = 0.5f * vv * height;
 
         const vec3 p = plane_distance * w + px * u + py * v;
 

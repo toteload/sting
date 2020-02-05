@@ -2,32 +2,33 @@
 #define GUARD_AABB_H
 
 struct alignas(16) AABB {
-    alignas(16) vec3 min;
-    alignas(16) vec3 max;
+    alignas(16) vec3 bmin;
+    alignas(16) vec3 bmax;
 
     // The union of two AABBs
     AABB merge(AABB other) const {
-        return { { std::min(min.x, other.min.x), std::min(min.y, other.min.y), std::min(min.z, other.min.z) },
-                 { std::max(max.x, other.max.x), std::max(max.y, other.max.y), std::max(max.z, other.max.z) } };
+        return { { std::min(bmin.x, other.bmin.x), std::min(bmin.y, other.bmin.y), std::min(bmin.z, other.bmin.z) },
+                 { std::max(bmax.x, other.bmax.x), std::max(bmax.y, other.bmax.y), std::max(bmax.z, other.bmax.z) } };
     }
 
     // Extend the AABB such that the given point is also contained
     AABB extend(vec3 p) const {
-        return { { std::min(min.x, p.x), std::min(min.y, p.y), std::min(min.z, p.z) },
-                 { std::max(max.x, p.x), std::max(max.y, p.y), std::max(max.z, p.z) } };
+        return { { std::min(bmin.x, p.x), std::min(bmin.y, p.y), std::min(bmin.z, p.z) },
+                 { std::max(bmax.x, p.x), std::max(bmax.y, p.y), std::max(bmax.z, p.z) } };
     }
 
+    // The point in the middle of the AABB
     vec3 centroid() const {
-        return 0.5f * min + 0.5f * max;
+        return 0.5f * bmin + 0.5f * bmax;
     }
 
     vec3 diagonal() const {
-        return max - min;
+        return bmax - bmin;
     }
 
     float surface_area() const {
         const vec3 d = diagonal();
-        return 2.0f * (d.x * d.y + d.x * d.z + d.y * d.z);
+        return abs(2.0f * (d.x * d.y + d.x * d.z + d.y * d.z));
     }
 
     // Return the axis for which the AABB is largest
@@ -46,6 +47,21 @@ struct alignas(16) AABB {
                 return 2;
             }
         }
+    }
+
+    __device__ bool intersect(vec3 ray_pos, vec3 ray_inv_dir, float* t_out) const {
+        const vec3 t1 = (bmin - ray_pos) * ray_inv_dir;
+        const vec3 t2 = (bmax - ray_pos) * ray_inv_dir;
+
+        const vec3 emin = min_elements(t1, t2);
+        const vec3 emax = max_elements(t1, t2);
+
+        const float tmin = max(emin.x, max(emin.y, emin.z));
+        const float tmax = min(emax.x, min(emax.y, emax.z));
+
+        *t_out = tmin;
+
+        return tmax > 0.0f && tmax > tmin;
     }
 
     static AABB empty() {
