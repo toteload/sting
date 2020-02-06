@@ -65,6 +65,8 @@ void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera c
 void render_buffer_to_screen(cudaArray_const_t array, vec4* buffer, uint32_t width, uint32_t height);
 
 int main(int argc, char** args) {
+    UNUSED(argc); UNUSED(args);
+
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
         return 1;
     }

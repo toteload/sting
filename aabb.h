@@ -1,7 +1,7 @@
 #ifndef GUARD_AABB_H
 #define GUARD_AABB_H
 
-#include "vecmath.h"
+#include "stingmath.h"
 
 struct alignas(16) AABB {
     alignas(16) vec3 bmin;

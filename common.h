@@ -9,4 +9,6 @@ typedef uint32_t u32;
 
 #define UNIMPLEMENTED() 
 
+#define UNUSED(x) ((void)(x))
+
 #endif // COMMON_H

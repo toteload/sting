@@ -28,6 +28,13 @@ struct alignas(16) BVHNode {
     bool intersect(vec3 ray_pos, vec3 ray_inv_dir) const;
 };
 
+// Just some sanity checking
+static_assert(offsetof(BVHNode, bmin) == 0, "");
+static_assert(offsetof(BVHNode, count) == 12, "");
+static_assert(offsetof(BVHNode, bmax) == 16, "");
+static_assert(offsetof(BVHNode, left_first) == 28, "");
+static_assert(sizeof(BVHNode) == 32, "");
+
 struct alignas(16) RenderTriangle {
     vec3 v0; uint32_t pad0;
     vec3 v1; uint32_t pad1;
@@ -37,13 +44,6 @@ struct alignas(16) RenderTriangle {
 };
 
 #ifndef __CUDACC__
-
-// Just some sanity checking
-static_assert(offsetof(BVHNode, bmin) == 0, "");
-static_assert(offsetof(BVHNode, count) == 12, "");
-static_assert(offsetof(BVHNode, bmax) == 16, "");
-static_assert(offsetof(BVHNode, left_first) == 28, "");
-static_assert(sizeof(BVHNode) == 32, "");
 
 // NOTE
 // This will reorder the `triangles` array
