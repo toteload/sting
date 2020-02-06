@@ -1,6 +1,4 @@
 #include "ext/SDL2-2.0.10/include/SDL.h"
-#include <stdio.h>
-#include <stdint.h>
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #define NOMINMAX
@@ -9,10 +7,14 @@
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 
+#include <stdint.h>
+#include <stdio.h>
+
 #include "common.h"
 #include "glext.h"
 #include "load_gl_extensions.h"
-#include "vecmath.h"
+#include "stingmath.h"
+#include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
 
@@ -24,7 +26,7 @@
 
 const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;
-const uint32_t STING_VERSION_REVISION = 0;
+const uint32_t STING_VERSION_REVISION = 1;
 
 inline cudaError cuda_err_check(cudaError err, const char* file, int line, bool abort) {
     (void)abort;
@@ -96,35 +98,15 @@ int main(int argc, char** args) {
 
     SDL_GL_MakeCurrent(window, gl_context);
 
+    if (!load_gl_extensions()) {
+        return 1;
+    }
+
     // enable/disable vsync
-    SDL_GL_SetSwapInterval(0);
+    SDL_GL_SetSwapInterval(1);
 
-    // Load all the OpenGL extension functions
+    // CUDA/OpenGL interop setup
     // --------------------------------------------------------------------- //
-    PFNGLCREATERENDERBUFFERSPROC glCreateRenderbuffers;
-    PFNGLCREATEFRAMEBUFFERSPROC glCreateFramebuffers;
-    PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC glNamedFramebufferRenderbuffer;
-    PFNGLNAMEDRENDERBUFFERSTORAGEPROC glNamedRenderbufferStorage;
-    PFNGLBLITNAMEDFRAMEBUFFERPROC glBlitNamedFramebuffer;
-    PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
-    PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
-
-    glCreateRenderbuffers = (PFNGLCREATERENDERBUFFERSPROC)SDL_GL_GetProcAddress("glCreateRenderbuffers");
-    glCreateFramebuffers = (PFNGLCREATEFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glCreateFramebuffers");
-    glNamedFramebufferRenderbuffer = (PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC)SDL_GL_GetProcAddress("glNamedFramebufferRenderbuffer");
-    glNamedRenderbufferStorage = (PFNGLNAMEDRENDERBUFFERSTORAGEPROC)SDL_GL_GetProcAddress("glNamedRenderbufferStorage");
-    glBlitNamedFramebuffer = (PFNGLBLITNAMEDFRAMEBUFFERPROC)SDL_GL_GetProcAddress("glBlitNamedFramebuffer");
-    glDeleteRenderbuffers = (PFNGLDELETERENDERBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteRenderbuffers");
-    glDeleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteFramebuffers");
-
-    if (!glCreateRenderbuffers) { printf("Could not find glCreateRenderbuffers...\n"); return 1; }
-    if (!glCreateFramebuffers) { printf("Could not find glCreateFramebuffers...\n"); return 1; }
-    if (!glNamedFramebufferRenderbuffer) { printf("Could not find glNamedFramebufferRenderbuffer...\n"); return 1; }
-    if (!glNamedRenderbufferStorage) { return 1; }
-    if (!glBlitNamedFramebuffer) { return 1; }
-    if (!glDeleteRenderbuffers) { return 1; }
-    if (!glDeleteFramebuffers) { return 1; }
-
     GLuint framebuffer, renderbuffer;
     cudaArray* screen_array;
     cudaGraphicsResource* graphics_resource;
@@ -141,15 +123,13 @@ int main(int argc, char** args) {
     cudaGraphicsSubResourceGetMappedArray(&screen_array, graphics_resource, 0, 0);
     cudaGraphicsUnmapResources(1, &graphics_resource, 0);
 
+    // This is the buffer to which you write in CUDA which then later gets
+    // copied to the screen.
     vec4* screen_buffer;
     cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
-    PointCamera camera(vec3(-1, 1, 0), // position
-                       vec3(0, 1, 0),  // up
-                       vec3(0, 0, 0),  // at
-                       SCREEN_WIDTH/1.0f, SCREEN_HEIGHT/1.0f, 600);
-    Keymap keymap = Keymap::empty();
-
+    // Loading in triangle mesh, building bvh and uploading to GPU
+    // --------------------------------------------------------------------- //
     fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
 
     if (!mesh) {
@@ -208,52 +188,68 @@ int main(int argc, char** args) {
     CUDA_CHECK(cudaMemcpy(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode), cudaMemcpyHostToDevice));
 
+    // Setting the camera and keymap
+    // --------------------------------------------------------------------- //
+    PointCamera camera(vec3(-1, 1, 0), // position
+                       vec3(0, 1, 0), // up
+                       vec3(0, 0, 0), // at
+                       SCREEN_WIDTH, SCREEN_HEIGHT, 
+                       600);
+    Keymap keymap = Keymap::empty();
+
     uint64_t frame_count = 0;
 
-    int running = 1;
+    const uint64_t frequency = SDL_GetPerformanceFrequency();
+    uint64_t previous_time = SDL_GetPerformanceCounter();
+
+    bool running = true;
     while (running) {
+        uint64_t current_time = SDL_GetPerformanceCounter();
+        const uint64_t time_diff = current_time - previous_time;
+        const float seconds = cast(float, time_diff) / frequency;
+        previous_time = current_time;
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_QUIT: { running = 0; } break;
             case SDL_KEYDOWN: {
                 switch (event.key.keysym.sym) {
-                case SDLK_ESCAPE: { running = 0; } break;
-                case SDLK_w: { keymap.w = 1; } break;
-                case SDLK_s: { keymap.s = 1; } break;
-                case SDLK_a: { keymap.a = 1; } break;
-                case SDLK_d: { keymap.d = 1; } break;
-                case SDLK_UP: { keymap.up = 1; } break;
-                case SDLK_DOWN: { keymap.down = 1; } break;
-                case SDLK_LEFT: { keymap.left = 1; } break;
-                case SDLK_RIGHT: { keymap.right = 1; } break;
+                case SDLK_ESCAPE: { running = false; } break;
+                case SDLK_w:      { keymap.w = 1; } break;
+                case SDLK_s:      { keymap.s = 1; } break;
+                case SDLK_a:      { keymap.a = 1; } break;
+                case SDLK_d:      { keymap.d = 1; } break;
+                case SDLK_UP:     { keymap.up = 1; } break;
+                case SDLK_DOWN:   { keymap.down = 1; } break;
+                case SDLK_LEFT:   { keymap.left = 1; } break;
+                case SDLK_RIGHT:  { keymap.right = 1; } break;
                 }
             } break;
             case SDL_KEYUP: {
                 switch (event.key.keysym.sym) {
-                case SDLK_w: { keymap.w = 0; } break;
-                case SDLK_s: { keymap.s = 0; } break;
-                case SDLK_a: { keymap.a = 0; } break;
-                case SDLK_d: { keymap.d = 0; } break;
-                case SDLK_UP: { keymap.up = 0; } break;
-                case SDLK_DOWN: { keymap.down = 0; } break;
-                case SDLK_LEFT: { keymap.left = 0; } break;
+                case SDLK_w:     { keymap.w = 0; } break;
+                case SDLK_s:     { keymap.s = 0; } break;
+                case SDLK_a:     { keymap.a = 0; } break;
+                case SDLK_d:     { keymap.d = 0; } break;
+                case SDLK_UP:    { keymap.up = 0; } break;
+                case SDLK_DOWN:  { keymap.down = 0; } break;
+                case SDLK_LEFT:  { keymap.left = 0; } break;
                 case SDLK_RIGHT: { keymap.right = 0; } break;
                 }
             } break;
             }
         }
 
-        if (keymap.w) { camera.pos = camera.pos + 0.01f * camera.w; }
-        if (keymap.s) { camera.pos = camera.pos - 0.01f * camera.w; }
-        if (keymap.a) { camera.pos = camera.pos - 0.01f * camera.u; }
-        if (keymap.d) { camera.pos = camera.pos + 0.01f * camera.u; }
+        if (keymap.w) { camera.pos = camera.pos + seconds * camera.w; }
+        if (keymap.s) { camera.pos = camera.pos - seconds * camera.w; }
+        if (keymap.a) { camera.pos = camera.pos - seconds * camera.u; }
+        if (keymap.d) { camera.pos = camera.pos + seconds * camera.u; }
 
-        if (keymap.up)   { camera.inclination -= 0.01f; }
-        if (keymap.down) { camera.inclination += 0.01f; }
-
-        if (keymap.left)  { camera.azimuth -= 0.01f; }
-        if (keymap.right) { camera.azimuth += 0.01f; }
+        if (keymap.up)    { camera.inclination -= seconds; }
+        if (keymap.down)  { camera.inclination += seconds; }
+        if (keymap.left)  { camera.azimuth -= seconds; }
+        if (keymap.right) { camera.azimuth += seconds; }
 
         camera.update_uvw();
 
@@ -284,6 +280,11 @@ int main(int argc, char** args) {
     return 0;
 }
 
+// The code below is another way of achieving CUDA/OpenGL interop, which uses
+// OpenGL extensions of a lower OpenGL version. The above version is a little
+// bit faster (at least for me) but makes use of extensions of OpenGL version
+// 4.5 or something. So this is a fall back in case you don't have that
+// version. 
 #if 0
 int main_new(int, char**);
 int main_simple(int, char**);

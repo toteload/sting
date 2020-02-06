@@ -1,5 +1,6 @@
 #include <stdint.h>
-#include "vecmath.h"
+#include "stingmath.h"
+#include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
 
@@ -54,35 +55,6 @@ __global__ void fill_screen_buffer(BVHNode const * bvh, RenderTriangle const * t
 
     vec4 c = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-#if 0
-    /*
-    // 4968
-    for (uint32_t i = 0; i < 1000; i++) {
-        float t;
-        if (triangle_intersect(ray, triangles[i].v0, triangles[i].v1, triangles[i].v2, &t)) {
-            c = vec4(1.0f, 0.0, 0.0f, 1.0f);
-            break;
-        }
-    }
-    */
-
-    //float t;
-    //uint32_t tri_id;
-    //uint32_t aabb_isect_count;
-    //uint32_t tri_isect_count;
-    //const bool hit = bvh_intersect_triangles(bvh, triangles, ray, &t, &tri_id, &aabb_isect_count, &tri_isect_count);
-    //float v = float(aabb_isect_count) / 80.0f;
-    //float v = float(tri_isect_count) / 400.0f;
-    //float v = hit ? 1.0f : 0.0f;
-    c = vec4(v, v, v, 1.0f);
-    //if (hit) { c = vec4(1.0f, 0.0f, 0.0f, 1.0f); }
-
-    /*
-    HitRecord rec;
-    const bool hit = intersect(bvh, triangles, ray, &rec);
-    if (hit) { c = vec4(1.0f, 0.0f, 0.0f, 1.0f); }
-    */
-#else
     HitRecord rec;
     const bool hit = intersect(bvh, triangles, ray, &rec);
 
@@ -100,7 +72,6 @@ __global__ void fill_screen_buffer(BVHNode const * bvh, RenderTriangle const * t
             c = vec4(v, v, v, 1.0f);
         }
     }
-#endif
 
     buffer[id] = c;
 }

@@ -18,6 +18,13 @@ PFNGLBUFFERDATAPROC glBufferData;
 PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog;
 PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog;
 PFNGLACTIVETEXTUREPROC glActiveTexture;
+PFNGLCREATERENDERBUFFERSPROC glCreateRenderbuffers;
+PFNGLCREATEFRAMEBUFFERSPROC glCreateFramebuffers;
+PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC glNamedFramebufferRenderbuffer;
+PFNGLNAMEDRENDERBUFFERSTORAGEPROC glNamedRenderbufferStorage;
+PFNGLBLITNAMEDFRAMEBUFFERPROC glBlitNamedFramebuffer;
+PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
+PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 
 uint32_t load_gl_extensions() {
     glCreateShader = (PFNGLCREATESHADERPROC)SDL_GL_GetProcAddress("glCreateShader");
@@ -79,6 +86,27 @@ uint32_t load_gl_extensions() {
 
     glActiveTexture = (PFNGLACTIVETEXTUREPROC)SDL_GL_GetProcAddress("glActiveTexture");
     if (!glActiveTexture) { return 0; }
+
+    glCreateRenderbuffers = (PFNGLCREATERENDERBUFFERSPROC)SDL_GL_GetProcAddress("glCreateRenderbuffers");
+    if (!glCreateRenderbuffers) { return 0; }
+
+    glCreateFramebuffers = (PFNGLCREATEFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glCreateFramebuffers");
+    if (!glCreateFramebuffers) { return 0; }
+
+    glNamedFramebufferRenderbuffer = (PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC)SDL_GL_GetProcAddress("glNamedFramebufferRenderbuffer");
+    if (!glNamedFramebufferRenderbuffer) { return 0; }
+
+    glNamedRenderbufferStorage = (PFNGLNAMEDRENDERBUFFERSTORAGEPROC)SDL_GL_GetProcAddress("glNamedRenderbufferStorage");
+    if (!glNamedRenderbufferStorage) { return 0; }
+
+    glBlitNamedFramebuffer = (PFNGLBLITNAMEDFRAMEBUFFERPROC)SDL_GL_GetProcAddress("glBlitNamedFramebuffer");
+    if (!glBlitNamedFramebuffer) { return 0; }
+
+    glDeleteRenderbuffers = (PFNGLDELETERENDERBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteRenderbuffers");
+    if (!glDeleteRenderbuffers) { return 0; }
+
+    glDeleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteFramebuffers");
+    if (!glDeleteFramebuffers) { return 0; }
 
     return 1;
 }

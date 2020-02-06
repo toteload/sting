@@ -2,7 +2,6 @@
 #define GUARD_BVH_H
 
 #include <vector>
-#include <algorithm>
 
 #include "aabb.h"
 

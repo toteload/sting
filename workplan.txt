@@ -1,26 +1,22 @@
-sting 0.1
--------------------------------------------------------------------------------
-This version is meant to have a raytracer that can actually render something
-at reasonably interactive frame rate.
-It will add BVH acceleration structure and loading of triangle
-meshes, with intersection of the BVH on the GPU.
-
-[x] bvh building and intersection
-[x] loading triangle meshes
-[x] uploading triangle mesh bvh to gpu and intersection on the gpu
-
-[ ] cleanup everything once the features for this version have been
-    implemented
-
-
 sting 0.2
 -------------------------------------------------------------------------------
+Add pathtracing basics to make things pretty kindof :)
 
+[ ] pathtrace with simple cosine weighted hemispherical sampling, limit the
+    depth.
+[ ] very basic materials: diffuse, mirror, emissive
+[ ] environment map
 
 sting 0.3
 -------------------------------------------------------------------------------
+Adding the wavefront architecture!
 
+sting 0.4
+-------------------------------------------------------------------------------
+The BVH update!
 
+[ ] MBVH instead of BVH
+[ ] top level BVH
 
 
 
@@ -38,11 +34,11 @@ Must have features
 
 Just random stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
+[ ] nested instancing
+[ ] debug statistics: framerate, ms per frame, maybe frame time histogram
 [ ] add functionality to have the render buffer size and the screen size
     to be different dimensions
 [ ] optimize AABB with SIMD
-[ ] quad bvh
-[ ] fps counter / ms per frame (using imgui maybe?)
 [ ] improve the camera with fov instead of plane distance
 [ ] different materials: diffuse and mirror to start with
 [ ] wavefront gpu implementation
@@ -52,6 +48,23 @@ Just random stuff I may want to add or change but not yet planned in
 [ ] random number generation on the GPU or some sort of pseudo random sampling
     BLUE NOISE!
 
+sting 0.1
+-------------------------------------------------------------------------------
+This version is meant to have a raytracer that can actually render something
+at reasonably interactive frame rate.
+It will add BVH acceleration structure and loading of triangle
+meshes, with intersection of the BVH on the GPU.
+
+[x] bvh building and intersection
+[x] loading triangle meshes
+[x] uploading triangle mesh bvh to gpu and intersection on the gpu
+
+[x] cleanup everything once the features for this version have been
+    implemented
+
+sting 0.1.1
+-------------------------------------------------------------------------------
+[x] fix the camera
 
 
 DONE

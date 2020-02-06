@@ -1,20 +1,22 @@
 #ifndef GUARD_AABB_H
 #define GUARD_AABB_H
 
+#include "vecmath.h"
+
 struct alignas(16) AABB {
     alignas(16) vec3 bmin;
     alignas(16) vec3 bmax;
 
     // The union of two AABBs
     AABB merge(AABB other) const {
-        return { { std::min(bmin.x, other.bmin.x), std::min(bmin.y, other.bmin.y), std::min(bmin.z, other.bmin.z) },
-                 { std::max(bmax.x, other.bmax.x), std::max(bmax.y, other.bmax.y), std::max(bmax.z, other.bmax.z) } };
+        return { { min(bmin.x, other.bmin.x), min(bmin.y, other.bmin.y), min(bmin.z, other.bmin.z) },
+                 { max(bmax.x, other.bmax.x), max(bmax.y, other.bmax.y), max(bmax.z, other.bmax.z) } };
     }
 
     // Extend the AABB such that the given point is also contained
     AABB extend(vec3 p) const {
-        return { { std::min(bmin.x, p.x), std::min(bmin.y, p.y), std::min(bmin.z, p.z) },
-                 { std::max(bmax.x, p.x), std::max(bmax.y, p.y), std::max(bmax.z, p.z) } };
+        return { { min(bmin.x, p.x), min(bmin.y, p.y), min(bmin.z, p.z) },
+                 { max(bmax.x, p.x), max(bmax.y, p.y), max(bmax.z, p.z) } };
     }
 
     // The point in the middle of the AABB
@@ -68,9 +70,9 @@ struct alignas(16) AABB {
         return { { FLT_MAX, FLT_MAX, FLT_MAX }, { -FLT_MAX, -FLT_MAX, -FLT_MAX } };
     }
 
-    static AABB for_triangle(vec3 p0, vec3 p1, vec3 p2) {
-        return { { std::min({ p0.x, p1.x, p2.x }), std::min({ p0.y, p1.y, p2.y }), std::min({ p0.z, p1.z, p2.z }) },
-                 { std::max({ p0.x, p1.x, p2.x }), std::max({ p0.y, p1.y, p2.y }), std::max({ p0.z, p1.z, p2.z }) } };
+    __host__ static AABB for_triangle(vec3 p0, vec3 p1, vec3 p2) {
+        return { { min({ p0.x, p1.x, p2.x }), min({ p0.y, p1.y, p2.y }), min({ p0.z, p1.z, p2.z }) },
+                 { max({ p0.x, p1.x, p2.x }), max({ p0.y, p1.y, p2.y }), max({ p0.z, p1.z, p2.z }) } };
     }
 };
 

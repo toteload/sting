@@ -18,3 +18,11 @@ glBufferData
 glGetShaderInfoLog
 glGetProgramInfoLog
 glActiveTexture
+
+glCreateRenderbuffers
+glCreateFramebuffers
+glNamedFramebufferRenderbuffer
+glNamedRenderbufferStorage
+glBlitNamedFramebuffer
+glDeleteRenderbuffers
+glDeleteFramebuffers
