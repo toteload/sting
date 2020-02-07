@@ -1,4 +1,4 @@
-#include <stdint.h>
+#include "common.h"
 #include "stingmath.h"
 #include "camera.h"
 #include "bvh.h"
@@ -7,21 +7,23 @@
 surface<void, cudaSurfaceType2D> screen_surface;
 
 __device__ bool intersect(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, HitRecord* hit_out) {
-    float t;
+    float t, u, v;
     uint32_t tri_id;
-    uint32_t aabb_isect_count;
-    uint32_t tri_isect_count;
-    const bool hit = bvh_intersect_triangles(bvh, triangles, ray, &t, &tri_id, &aabb_isect_count, &tri_isect_count);
+    const bool hit = bvh_intersect_triangles(bvh, triangles, ray, &t, &u, &v, &tri_id);
 
     if (!hit) {
         return false;
     }
 
     const RenderTriangle& tri = triangles[tri_id];
+#if 0
+    vec3 normal = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, u, v);
+#else
     vec3 normal = triangle_normal(tri.v0, tri.v1, tri.v2);
     if (dot(normal, ray.dir) > 0.0f) {
         normal = -1.0f * normal;
     }
+#endif
 
     HitRecord rec;
     rec.pos = ray.pos + t * ray.dir;

@@ -132,7 +132,9 @@ int main(int argc, char** args) {
 
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
-    fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
+    fastObjMesh* mesh = fast_obj_read("bunny.obj");
+
+    printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
     if (!mesh) {
         printf("Failed to load Buddha...\n");
@@ -152,11 +154,12 @@ int main(int argc, char** args) {
             const uint32_t vertex_count = mesh->face_vertices[group.face_offset + j];
 
             if (vertex_count != 3) {
-                // TODO report some sort of warning or error
+                printf("Found a face that is not a triangle...\n");
                 continue;
             }
 
             vec3 vertices[3];
+            vec3 normals[3];
 
             // Loop over all the vertices in this face
             for (uint32_t k = 0; k < vertex_count; k++) {
@@ -166,10 +169,15 @@ int main(int argc, char** args) {
                                    mesh->positions[3 * index.p + 1], 
                                    mesh->positions[3 * index.p + 2]);
 
+                normals[k] = vec3(mesh->normals[3 * index.n + 0],
+                                  mesh->normals[3 * index.n + 1],
+                                  mesh->normals[3 * index.n + 2]);
+
                 vertex_index++;
             }
 
-            triangles.push_back(RenderTriangle(vertices[0], vertices[1], vertices[2]));
+            triangles.push_back(RenderTriangle(vertices[0], vertices[1], vertices[2],
+                                               normals[0], normals[1], normals[2]));
         }
     }
 

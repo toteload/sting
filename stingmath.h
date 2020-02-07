@@ -155,6 +155,33 @@ vec3 operator-(vec3 a, vec3 b) {
     return { a.x-b.x, a.y-b.y, a.z-b.z };
 }
 
+// Normal packing
+// ----------------------------------------------------------------------------
+
+// For theory see http://aras-p.info/texts/CompactNormalStorage.html
+// This version was humbly copied from Lighthouse 2
+
+inline uint32_t pack_normal(vec3 n) {
+    const float f = 65535.0f / sqrtf(8.0f * n.z + 8.0f);
+    return cast(uint32_t, n.x * f + 32767.0f) + (cast(uint32_t, n.y * f + 32767.0f ) << 16);
+}
+
+inline vec3 unpack_normal(uint32_t p) {
+    vec4 nn(cast(float, p & 65335) * (2.0f / 65335.0f) - 1.0f,
+            cast(float, p >> 16) * (2.0f / 65335.0f) - 1.0f,
+            -1.0f,
+            -1.0f);
+
+    const float l = dot(vec3(nn.x, nn.y, nn.z), vec3(-nn.x, -nn.y, -nn.w));
+    nn.z = l;
+
+    const float ll = sqrtf(l);
+    nn.x *= ll;
+    nn.y *= ll;
+
+    return vec3(nn.x, nn.y, nn.z) * 2.0f + vec3(0.0f, 0.0f, -1.0f);
+}
+
 // triangle functions
 // ----------------------------------------------------------------------------
 
@@ -165,7 +192,17 @@ inline __device__ vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
     return cross(e0, e1).normalize();
 }
 
-inline __device__ bool triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2, float* t_out) {
+inline __device__ 
+vec3 triangle_normal_lerp(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
+    const float w = 1.0f - u - v;
+    return u * n0 + v * n1 + w * n2;
+}
+
+// Moller Trumbore ray triangle intersection algorithm
+inline __device__ 
+bool triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2, 
+                        float* t_out, float* u_out, float* v_out)
+{
     const vec3 e0 = v1 - v0;
     const vec3 e1 = v2 - v0;
 
@@ -196,6 +233,8 @@ inline __device__ bool triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2, fl
     }
 
     *t_out = t;
+    *u_out = u;
+    *v_out = v;
 
     return true;
 }

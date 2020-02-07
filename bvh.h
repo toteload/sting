@@ -39,8 +39,13 @@ struct alignas(16) RenderTriangle {
     vec3 v0; uint32_t pad0;
     vec3 v1; uint32_t pad1;
     vec3 v2; uint32_t pad2;
+    vec3 n0; uint32_t pad3;
+    vec3 n1; uint32_t pad4;
+    vec3 n2; uint32_t pad5;
 
-    RenderTriangle(vec3 v0, vec3 v1, vec3 v2) : v0(v0), v1(v1), v2(v2) { }
+    RenderTriangle(vec3 v0, vec3 v1, vec3 v2, vec3 n0, vec3 n1, vec3 n2) : 
+        v0(v0), v1(v1), v2(v2), n0(n0), n1(n1), n2(n2)
+    { }
 };
 
 #ifndef __CUDACC__

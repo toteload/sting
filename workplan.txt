@@ -3,6 +3,7 @@ sting 0.2
 Add pathtracing basics to make things pretty kindof :)
 
 [ ] add normals to triangle mesh
+    [ ] normal packing and unpacking
 [ ] pathtrace with simple cosine weighted hemispherical sampling, limit the
     depth.
 [ ] very basic materials: diffuse, mirror, emissive

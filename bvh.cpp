@@ -182,8 +182,7 @@ struct Stack {
 };
 
 __device__ bool bvh_intersect_triangles(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, 
-                                        float* t_out, uint32_t* tri_id_out, 
-                                        uint32_t* aabb_isect_count_out, uint32_t* tri_isect_count_out) 
+                                        float* t_out, float* u_out, float* v_out, uint32_t* tri_id_out)
 {
     // Create a stack and initialize it with the root node
     Stack<uint32_t, 32> stack({ 0 });
@@ -191,36 +190,32 @@ __device__ bool bvh_intersect_triangles(BVHNode const * bvh, RenderTriangle cons
     const vec3 ray_inv_dir = ray.dir.inverse();
 
     float t_nearest = FLT_MAX;
+    float u_best, v_best;
     uint32_t tri_id = 0;
-
-    uint32_t aabb_isect_count = 0;
-    uint32_t tri_isect_count = 0;
 
     while (!stack.is_empty()) {
         const BVHNode& node = bvh[stack.pop()];
 
         if (node.is_leaf()) {
             for (uint32_t i = 0; i < node.count; i++) {
-                float t;
+                float t, u, v;
                 if (triangle_intersect(ray, 
                                        triangles[node.left_first+i].v0, 
                                        triangles[node.left_first+i].v1, 
                                        triangles[node.left_first+i].v2, 
-                                       &t))
+                                       &t, &u, &v))
                 {
                     if (t < t_nearest) {
                         t_nearest = t;
+                        u_best = u;
+                        v_best = v;
                         tri_id = node.left_first + i;
                     }
                 }
             }
-
-            tri_isect_count += node.count;
         } else {
             const BVHNode& left = bvh[node.left_first];
             const BVHNode& right = bvh[node.left_first + 1];
-
-            aabb_isect_count += 1;
 
             float t_left, t_right;
             const bool hit_left = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
@@ -242,9 +237,9 @@ __device__ bool bvh_intersect_triangles(BVHNode const * bvh, RenderTriangle cons
     }
 
     *t_out = t_nearest;
+    *u_out = u_best;
+    *v_out = v_best;
     *tri_id_out = tri_id;
-    *aabb_isect_count_out = aabb_isect_count;
-    *tri_isect_count_out = tri_isect_count;
 
     return t_nearest != FLT_MAX;
 }
@@ -261,12 +256,12 @@ __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTr
 
         if (node.is_leaf()) {
             for (uint32_t i = 0; i < node.count; i++) {
-                float t;
+                float t, u, v;
                 const bool hit = triangle_intersect(ray, 
                                                     triangles[node.left_first+i].v0, 
                                                     triangles[node.left_first+i].v1, 
                                                     triangles[node.left_first+i].v2, 
-                                                    &t);
+                                                    &t, &u, &v);
                 if (hit && t < max_dist) {
                     return true;
                 }

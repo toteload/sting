@@ -2,7 +2,7 @@
 
 :: build the CUDA files
 ::nvcc -O2 -Xcompiler "/MD /Z7" -c fillimage.cu
-nvcc -O2 -Xcompiler "/MD /Oi" -c fillimage.cu
+nvcc -O3 -Xcompiler "/MD /Oi" -c fillimage.cu
 
 ::python genglextensions.py
 
