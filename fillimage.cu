@@ -6,6 +6,44 @@
 
 surface<void, cudaSurfaceType2D> screen_surface;
 
+__device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, 
+                                     u32 seed, u32 depth = 0) 
+{
+    const vec3 BLACK(0.0f);
+
+    if (depth == 4) {
+        return BLACK;
+    }
+
+    float t, u, v;
+    uint32_t tri_id;
+    const bool hit = bvh_intersect_triangles(bvh, triangles, ray, &t, &u, &v, &tri_id);
+
+    if (!hit) {
+        return BLACK;
+    }
+
+    const RenderTriangle& tri = triangles[tri_id];
+    const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, u, v);
+    const vec3 p = ray.pos + t * ray.dir;
+
+    switch (tri.material) {
+    case MATERIAL_DIFFUSE: {
+        const f32 r0 = rng_xor32(seed), r1 = rng_xor32(seed);
+        const vec3 scatter_direction = diffuse_reflection(n, r0, r1);
+        const Ray scatter_ray(p + scatter_direction * 0.0001f, scatter_direction);
+        const vec3 brdf = (1.0f / M_PI) * tri.color;
+        const vec3 ei = dot(scatter_direction, n) * pathtrace_bruteforce(bvh, triangles, scatter_ray, depth + 1);
+        return M_2_PI * brdf * ei;
+    } break;
+    case MATERIAL_EMISSIVE: {
+        return tri.light_intensity * tri.color;
+    } break;
+    }
+
+    return BLACK;
+}
+
 __device__ bool intersect(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, HitRecord* hit_out) {
     float t, u, v;
     uint32_t tri_id;

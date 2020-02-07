@@ -8,6 +8,14 @@
 // This value has been empirically found, there is a good chance another value is better :)
 __device__ const float TRIANGLE_INTERSECT_EPSILON = 1e-6f;
 
+template<typename T, size_t Capacity>
+class Array {
+public:
+    Array() { }
+private:
+    T data[Capacity];
+};
+
 union vec3 {
     struct { float x, y, z; };
     struct { float r, g, b; };
@@ -23,19 +31,44 @@ union vec3 {
     __host__ __device__ inline float operator[](size_t i) const;
 };
 
+         __device__ inline vec3 min_elements(vec3 a, vec3 b);
+         __device__ inline vec3 max_elements(vec3 a, vec3 b);
+__host__ __device__ inline f32  dot(vec3 a, vec3 b);
+__host__ __device__ inline vec3 cross(vec3 a, vec3 b);
+__host__ __device__ inline vec3 operator*(f32 s, vec3 v);
+__host__ __device__ inline vec3 operator+(vec3 a, vec3 b);
+__host__ __device__ inline vec3 operator-(vec3 a, vec3 b);
+__host__ __device__ inline void operator+=(vec3& a, const vec3& b);
+
 union alignas(16) vec4 {
     struct { float x, y, z, w; };
     struct { float r, g, b, a; };
     float fields[4];
 
+    __host__ __device__ vec4() { }
     __host__ __device__ vec4(float v) : x(v), y(v), z(v), w(v) { }
     __host__ __device__ vec4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) { }
 };
 
-struct Ray {
-    vec3 pos;
-    vec3 dir;
+__device__ inline vec4 operator*(f32 s, vec4 v);
+
+struct alignas(16) Ray {
+    vec3 pos; uint32_t pad0;
+    vec3 dir; uint32_t pad1;
+
+    __device__ Ray(vec3 pos, vec3 dir) : pos(pos), dir(dir) { }
 };
+
+// Random number generation
+// ----------------------------------------------------------------------------
+
+__device__ inline
+f32 rng_xor32(u32& seed) {
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed <<  5;
+    return seed * 2.3283064365387e-10f;
+}
 
 // General functions
 // ----------------------------------------------------------------------------
@@ -103,6 +136,35 @@ vec3 spherical_to_cartesian(float inclination, float azimuth) {
              sinf(inclination) * sinf(azimuth) };
 }
 
+// Calculates a tangent and bitangent for a normal
+inline __device__
+void coordinate_system_from_normal(vec3 n, vec3* nt_out, vec3* nb_out) {
+    const vec3 nt = (fabs(n.x) > fabs(n.y)) ? vec3(n.z, 0.0f, -n.x).normalize() : 
+                                              vec3(0.0f, -n.z, n.y).normalize();
+    const vec3 nb = cross(n, nt);
+
+    *nt_out = nt;
+    *nb_out = nb;
+}
+
+// random cosine weighted diffuse reflection
+inline __device__
+vec3 diffuse_reflection(vec3 n, f32 r0, f32 r1) {
+    const f32 v = sqrtf(1.0f - r1);
+    const f32 r0_2pi = r0 * M_2_PI;
+
+    const f32 x = cosf(r0_2pi) * v;
+    const f32 y = sqrtf(r1);
+    const f32 z = sinf(r0_2pi) * v;
+
+    vec3 nt, nb;
+    coordinate_system_from_normal(n, &nt, &nb);
+
+    return vec3(x * nb.x + y * n.x + z * nt.x,
+                x * nb.y + y * n.y + z * nt.y,
+                x * nb.z + y * n.z + z * nt.z);
+}
+
 // vec3 functions
 // ----------------------------------------------------------------------------
 
@@ -112,47 +174,60 @@ __host__ __device__ inline vec3  vec3::inverse() const { return { 1.0f / x, 1.0f
 __host__ __device__ inline float vec3::operator[](size_t i) const { return fields[i]; }
 
 // For each element select the minimum of the two vectors
-inline __device__ 
+__device__ inline
 vec3 min_elements(vec3 a, vec3 b) {
     return { min(a.x, b.x), min(a.y, b.y), min(a.z, b.z) };
 }
 
 // For each element select the maximum of the two vectors
-inline __device__ 
+__device__ inline
 vec3 max_elements(vec3 a, vec3 b) {
     return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline
 float dot(vec3 a, vec3 b) {
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline 
 vec3 cross(vec3 a, vec3 b) {
     return { a.y*b.z - a.z*b.y,
              a.z*b.x - a.x*b.z,
              a.x*b.y - a.y*b.x, };
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline
 vec3 operator*(float s, vec3 v) {
     return { s * v.x, s * v.y, s * v.z };
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline
 vec3 operator*(vec3 a, vec3 b) {
     return { a.x * b.x, a.y * b.y, a.z * b.z };
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline
 vec3 operator+(vec3 a, vec3 b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
 }
 
-inline __host__ __device__ 
+__host__ __device__ inline 
 vec3 operator-(vec3 a, vec3 b) {
     return { a.x-b.x, a.y-b.y, a.z-b.z };
+}
+
+__host__ __device__ inline 
+void operator+=(vec3& a, const vec3& b) {
+    a = a + b;
+}
+
+// vec4
+// ----------------------------------------------------------------------------
+
+__device__ inline
+vec4 operator*(f32 s, vec4 v) {
+    return { s * v.x, s * v.y, s * v.z, s * v.w };
 }
 
 // Normal packing
@@ -185,21 +260,24 @@ inline vec3 unpack_normal(uint32_t p) {
 // triangle functions
 // ----------------------------------------------------------------------------
 
-inline __device__ vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
+__host__ __device__ inline
+vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
     const vec3 e0 = v1 - v0;
     const vec3 e1 = v2 - v0;
 
     return cross(e0, e1).normalize();
 }
 
-inline __device__ 
+__device__ inline
 vec3 triangle_normal_lerp(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
     const float w = 1.0f - u - v;
     return u * n0 + v * n1 + w * n2;
 }
 
 // Moller Trumbore ray triangle intersection algorithm
-inline __device__ 
+// This algorithm calculates the Barycentric coordinates to check for
+// intersection, so we also return those.
+__device__ inline
 bool triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2, 
                         float* t_out, float* u_out, float* v_out)
 {

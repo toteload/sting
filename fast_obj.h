@@ -116,6 +116,7 @@ typedef struct {
 
     // the amount of vertices per face, a face isn't necessarily a triangle
     unsigned int*               face_vertices;
+
     unsigned int*               face_materials;
 
     /* Index data: one element for each face vertex */

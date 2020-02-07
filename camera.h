@@ -54,7 +54,7 @@ struct PointCamera {
 
         const vec3 p = plane_distance * w + px * u + py * v;
 
-        return { pos, p.normalize() };
+        return Ray(pos, p.normalize());
     }
 };
 

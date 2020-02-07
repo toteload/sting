@@ -17,12 +17,9 @@
 #include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#define FAST_OBJ_IMPLEMENTATION
 #include "fast_obj.h"
-#pragma clang diagnostic pop
+#include "stb_image.h"
+#include "meshloader.h"
 
 const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;

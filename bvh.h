@@ -35,13 +35,30 @@ static_assert(offsetof(BVHNode, bmax) == 16, "");
 static_assert(offsetof(BVHNode, left_first) == 28, "");
 static_assert(sizeof(BVHNode) == 32, "");
 
+enum RenderMaterial : u32 {
+    MATERIAL_DIFFUSE = 1,
+    MATERIAL_MIRROR = 2,
+    MATERIAL_EMISSIVE = 3,
+};
+
+// NOTE
+// This triangle format has not yet been optimized for size.
+// It is the way it is for the sake of simplicity
 struct alignas(16) RenderTriangle {
-    vec3 v0; uint32_t pad0;
+    vec3 v0; uint32_t material;
     vec3 v1; uint32_t pad1;
     vec3 v2; uint32_t pad2;
     vec3 n0; uint32_t pad3;
     vec3 n1; uint32_t pad4;
     vec3 n2; uint32_t pad5;
+    vec3 color; float light_intensity;
+    vec3 face_normal; u32 pad6;
+
+    RenderTriangle(vec3 v0, vec3 v1, vec3 v2) :
+        v0(v0), v1(v1), v2(v2) 
+    {
+        n0 = n1 = n2 = triangle_normal(v0, v1, v2);
+    }
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2, vec3 n0, vec3 n1, vec3 n2) : 
         v0(v0), v1(v1), v2(v2), n0(n0), n1(n1), n2(n2)

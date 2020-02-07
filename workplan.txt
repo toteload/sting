@@ -2,10 +2,18 @@ sting 0.2
 -------------------------------------------------------------------------------
 Add pathtracing basics to make things pretty kindof :)
 
-[ ] add normals to triangle mesh
-    [ ] normal packing and unpacking
+normals
+-------
+[x] add normals to triangle mesh
+[x] normal packing and unpacking
+    [ ] test this
+
+[ ] calculate interpolated normals from triangle soup
+
 [ ] pathtrace with simple cosine weighted hemispherical sampling, limit the
     depth.
+
+[x] rng for gpu
 [ ] very basic materials: diffuse, mirror, emissive
 [ ] environment map
 
