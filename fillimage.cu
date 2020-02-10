@@ -41,7 +41,9 @@ __global__ void normal_test_pass(BVHNode const * bvh, RenderTriangle const * tri
     buffer[id] = vec4(n, 1.0f);
 }
 
-__device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, u32 seed) {
+__device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, u32 seed,
+                                     vec4 const * skybox) 
+{
     const vec3 BLACK(0.0f);
 
     vec3 acc = vec3(1.0f);
@@ -56,7 +58,13 @@ __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const *
         const bool hit = bvh_intersect_triangles(bvh, triangles, ray, &t, &u, &v, &tri_id);
 
         if (!hit) {
-            return BLACK;
+            //Sample the skybox
+            f32 inclination, azimuth;
+            cartesian_to_spherical(ray.dir, &inclination, &azimuth);
+            const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
+            const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
+            const vec4 sky = skybox[vi * 4096 + ui];
+            return vec3(sky.r, sky.g, sky.b);
         }
 
         const RenderTriangle& tri = triangles[tri_id];
@@ -84,6 +92,12 @@ __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const *
             } else { 
                 return acc * tri.light_intensity * tri.color; 
             }
+        } break;
+        case MATERIAL_MIRROR: {
+            const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, u, v);
+            const vec3 p = ray.pos + t * ray.dir;
+            const vec3 reflection = reflect(n, ray.dir);
+            ray = Ray(p + reflection * 0.0001f, reflection);
         } break;
         }
     }
@@ -132,6 +146,7 @@ __global__ void accumulate_pass(vec4* frame_buffer, vec4* accumulator, vec4* scr
 }
 
 __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera,
+                         vec4 const * skybox,
                          vec4* buffer, u32 width, u32 height, u32 framenum)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -150,7 +165,7 @@ __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, 
 
     const Ray ray = camera.create_ray(nx, ny);
 
-    const vec3 c = pathtrace_bruteforce(bvh, triangles, ray, seed);
+    const vec3 c = pathtrace_bruteforce(bvh, triangles, ray, seed, skybox);
     
     buffer[id] = vec4(c, 1.0f);
 }
@@ -219,11 +234,12 @@ void accumulate(vec4* frame_buffer, vec4* accumulator, vec4* screen_buffer, u32 
 }
 
 void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
+            vec4 const * skybox,
             vec4* buffer, u32 width, u32 height, u32 framenum) 
 {
     dim3 threads = dim3(16, 16, 1);
     dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-    test_001<<<blocks, threads>>>(bvh, triangles, camera, buffer, width, height, framenum);
+    test_001<<<blocks, threads>>>(bvh, triangles, camera, skybox, buffer, width, height, framenum);
 }
 
 void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 

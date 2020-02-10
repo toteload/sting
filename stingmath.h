@@ -121,15 +121,9 @@ inline float degrees_to_radians(float d) {
 // inclination and azimuth in radians
 inline __host__ __device__ 
 void cartesian_to_spherical(const vec3& v, float* inclination, float* azimuth) {
-#if 0
-    // Not 100% this is correct in every situation :P
-    const vec3 n = v.normalize();
-    *inclination = acos(n.y);
-    *azimuth = atanf(n.z / n.x);
-#endif
     const f32 r = v.length();
-    *inclination = acosf(v.z / r);
-    *azimuth = atan2f(v.y, v.x);
+    *inclination = acosf(v.y / r); // in range [0, pi]
+    *azimuth = atan2f(v.z, v.x); // in range [-pi, pi]
 }
 
 // inclination and azimuth in radians
@@ -167,6 +161,11 @@ void build_orthonormal_basis(const vec3& n, vec3* t, vec3* b) {
 __device__ inline
 vec3 to_world_space(const vec3& sample, const vec3& n, const vec3& t, const vec3& b) {
     return sample.x * b + sample.y * n + sample.z * t;
+}
+
+__device__ inline
+vec3 reflect(const vec3& n, const vec3& incident) {
+    return (incident - 2.0f * dot(n, incident) * n).normalize();
 }
 
 __device__ inline

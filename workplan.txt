@@ -5,15 +5,17 @@ Add pathtracing basics to make things pretty kindof :)
 normals
 -------
 
-[ ] environment map
 [ ] Set default winding order to the triangles to determine normal direction
     and barycentric coordinates orientation. Make this consistent in the code.
 [ ] calculate interpolated normals from triangle soup
-[ ] basic materials:
+[ ] cosine weighted path tracing
+[ ] next event estimation
+
+[x] basic materials:
     [x] diffuse
     [x] emissive
-    [ ] mirror
-
+    [x] mirror
+[x] environment map
 [x] add normals to triangle mesh
 [x] pathtracing!, limit the depth.
 [x] accumulator
@@ -62,9 +64,9 @@ Just random stuff I may want to add or change but not yet planned in
 [ ] add functionality to have the render buffer size and the screen size
     to be different dimensions
 [ ] optimize AABB with SIMD
-[ ] improve the camera with fov instead of plane distance
-[ ] different materials: diffuse and mirror to start with
-[ ] wavefront gpu implementation
+[ ] improve the camera with fov instead of plane distance, is a bit more
+    natural to setup like that
+[ ] more materials!
 [ ] DOF camera
 [ ] variance reduction techniques: russian roulette, next event estimation
 [ ] add Disney BRDF (looks pretty?)

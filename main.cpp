@@ -57,7 +57,7 @@ struct Keymap {
     }
 };
 
-void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
+void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, vec4 const * skybox,
             vec4* buffer, u32 width, u32 height, u32 framenum);
 void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
                    vec4* buffer, u32 width, u32 height, u32 framenum);
@@ -232,12 +232,12 @@ int main(int argc, char** args) {
     
     std::vector<RenderTriangle> triangles;
 
-#if 0
+#if 1
     auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f);
     triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
 #endif
 
-#if 1
+#if 0
     auto light0 = RenderTriangle(vec3(0.0f, 0.4f, 0.0f),
                                  vec3(0.3f, 0.4f, 0.0f),
                                  vec3(0.0f, 0.5f, 0.3f));
@@ -260,7 +260,7 @@ int main(int argc, char** args) {
     triangles.push_back(light2);
 #endif
 
-#if 1
+#if 0
     fastObjMesh* mesh = fast_obj_read("bunny.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
@@ -430,7 +430,8 @@ int main(int argc, char** args) {
 
         camera.update_uvw();
 
-        render(gpu_bvh, gpu_triangles, camera, frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
+        render(gpu_bvh, gpu_triangles, camera, skybox_buffer, 
+               frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
         accumulate(frame_buffer, accumulator, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, acc_frame);
         render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
         //render_buffer_to_screen(screen_array, frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
