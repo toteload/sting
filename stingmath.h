@@ -8,14 +8,6 @@
 // This value has been empirically found, there is a good chance another value is better :)
 __device__ const float TRIANGLE_INTERSECT_EPSILON = 1e-6f;
 
-template<typename T, size_t Capacity>
-class Array {
-public:
-    Array() { }
-private:
-    T data[Capacity];
-};
-
 union vec3 {
     struct { float x, y, z; };
     struct { float r, g, b; };
@@ -36,6 +28,8 @@ union vec3 {
 __host__ __device__ inline f32  dot(vec3 a, vec3 b);
 __host__ __device__ inline vec3 cross(vec3 a, vec3 b);
 __host__ __device__ inline vec3 operator*(f32 s, vec3 v);
+__host__ __device__ inline vec3 operator*(vec3 a, vec3 b);
+__host__ __device__ inline void operator*=(vec3& a, const vec3& b);
 __host__ __device__ inline vec3 operator+(vec3 a, vec3 b);
 __host__ __device__ inline vec3 operator-(vec3 a, vec3 b);
 __host__ __device__ inline void operator+=(vec3& a, const vec3& b);
@@ -48,9 +42,13 @@ union alignas(16) vec4 {
     __host__ __device__ vec4() { }
     __host__ __device__ vec4(float v) : x(v), y(v), z(v), w(v) { }
     __host__ __device__ vec4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) { }
+    __host__ __device__ vec4(const vec3& v, f32 w) : x(v.x), y(v.y), z(v.z), w(w) { }
 };
 
 __device__ inline vec4 operator*(f32 s, vec4 v);
+__device__ inline vec4 operator+(const vec4&a, const vec4& b);
+__device__ inline void operator+=(vec4& a, const vec4& b);
+__device__ inline vec4 operator/(const vec4& a, f32 s);
 
 struct alignas(16) Ray {
     vec3 pos; uint32_t pad0;
@@ -122,10 +120,16 @@ inline float degrees_to_radians(float d) {
 
 // inclination and azimuth in radians
 inline __host__ __device__ 
-void cartesian_to_spherical(vec3 v, float* inclination, float* azimuth) {
-    vec3 n = v.normalize();
+void cartesian_to_spherical(const vec3& v, float* inclination, float* azimuth) {
+#if 0
+    // Not 100% this is correct in every situation :P
+    const vec3 n = v.normalize();
     *inclination = acos(n.y);
     *azimuth = atanf(n.z / n.x);
+#endif
+    const f32 r = v.length();
+    *inclination = acosf(v.z / r);
+    *azimuth = atan2f(v.y, v.x);
 }
 
 // inclination and azimuth in radians
@@ -136,33 +140,51 @@ vec3 spherical_to_cartesian(float inclination, float azimuth) {
              sinf(inclination) * sinf(azimuth) };
 }
 
-// Calculates a tangent and bitangent for a normal
-inline __device__
-void coordinate_system_from_normal(vec3 n, vec3* nt_out, vec3* nb_out) {
-    const vec3 nt = (fabs(n.x) > fabs(n.y)) ? vec3(n.z, 0.0f, -n.x).normalize() : 
-                                              vec3(0.0f, -n.z, n.y).normalize();
-    const vec3 nb = cross(n, nt);
-
-    *nt_out = nt;
-    *nb_out = nb;
+__device__ inline
+void build_orthonormal_basis(const vec3& n, vec3* t, vec3* b) {
+#if 1
+    // This method can produce weird results along the planes splitting in
+    // x / y if the resolution of a triangle mesh isn't high enough
+    *t = (fabs(n.x) > fabs(n.y)) ? vec3(n.z, 0.0f, -n.x).normalize() : 
+                                   vec3(0.0f, -n.z, n.y).normalize();
+    *b = cross(n, *t);
+#else
+    // This method has some strange stuff going on near n = (0, 0, -1)
+    // Frisvad method
+    //if (n.z < -0.9999999f) {
+    if (n.z == -1.0f) {
+        *t = vec3( 0.0f, -1.0f, 0.0f);
+        *b = vec3(-1.0f,  0.0f, 0.0f);
+    } else {
+        const f32 r = 1.0f / (1.0f + n.z);
+        const f32 s = -n.x * n.y * r;
+        *t = vec3(1.0f - n.x * n.x * r, s, -n.x);
+        *b = vec3(s, 1.0f - n.y * n.y * r, -n.y);
+    }
+#endif
 }
 
-// random cosine weighted diffuse reflection
-inline __device__
-vec3 diffuse_reflection(vec3 n, f32 r0, f32 r1) {
-    const f32 v = sqrtf(1.0f - r1);
-    const f32 r0_2pi = r0 * M_2_PI;
+__device__ inline
+vec3 to_world_space(const vec3& sample, const vec3& n, const vec3& t, const vec3& b) {
+    return sample.x * b + sample.y * n + sample.z * t;
+}
 
-    const f32 x = cosf(r0_2pi) * v;
-    const f32 y = sqrtf(r1);
-    const f32 z = sinf(r0_2pi) * v;
+__device__ inline
+vec3 sample_uniform_hemisphere(f32 r1, f32 r2) {
+    const f32 s = sqrtf(1.0f - r1 * r1);
+    const f32 phi = 2.0f * M_PI * r2; // [0, 2*pi)
+    const f32 x = s * cosf(phi);
+    const f32 z = s * sinf(phi);
+    return vec3(x, r1, z);
+}
 
-    vec3 nt, nb;
-    coordinate_system_from_normal(n, &nt, &nb);
-
-    return vec3(x * nb.x + y * n.x + z * nt.x,
-                x * nb.y + y * n.y + z * nt.y,
-                x * nb.z + y * n.z + z * nt.z);
+__device__ inline
+vec3 sample_cosine_weighted_hemisphere(f32 r1, f32 r2) {
+    const f32 s = sqrtf(r1);
+    const f32 theta = 2.0f * M_PI * r2;
+    const f32 x = s * cosf(theta);
+    const f32 z = s * sinf(theta);
+    return vec3(x, sqrtf(1.0f - r1), z);
 }
 
 // vec3 functions
@@ -207,6 +229,11 @@ vec3 operator*(vec3 a, vec3 b) {
     return { a.x * b.x, a.y * b.y, a.z * b.z };
 }
 
+__host__ __device__ inline 
+void operator*=(vec3& a, const vec3& b) {
+    a = a * b;
+}
+
 __host__ __device__ inline
 vec3 operator+(vec3 a, vec3 b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
@@ -228,6 +255,20 @@ void operator+=(vec3& a, const vec3& b) {
 __device__ inline
 vec4 operator*(f32 s, vec4 v) {
     return { s * v.x, s * v.y, s * v.z, s * v.w };
+}
+__device__ inline 
+vec4 operator+(const vec4&a, const vec4& b) {
+    return vec4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
+}
+
+__device__ inline 
+void operator+=(vec4& a, const vec4& b) {
+    a = a + b;
+}
+
+__device__ inline 
+vec4 operator/(const vec4& a, f32 s) {
+    return vec4(a.x / s, a.y / s, a.z / s, a.w / s);
 }
 
 // Normal packing
@@ -271,7 +312,7 @@ vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
 __device__ inline
 vec3 triangle_normal_lerp(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
     const float w = 1.0f - u - v;
-    return u * n0 + v * n1 + w * n2;
+    return w * n0 + u * n1 + v * n2;
 }
 
 // Moller Trumbore ray triangle intersection algorithm

@@ -4,18 +4,21 @@ Add pathtracing basics to make things pretty kindof :)
 
 normals
 -------
-[x] add normals to triangle mesh
-[x] normal packing and unpacking
-    [ ] test this
 
-[ ] calculate interpolated normals from triangle soup
-
-[ ] pathtrace with simple cosine weighted hemispherical sampling, limit the
-    depth.
-
-[x] rng for gpu
-[ ] very basic materials: diffuse, mirror, emissive
 [ ] environment map
+[ ] Set default winding order to the triangles to determine normal direction
+    and barycentric coordinates orientation. Make this consistent in the code.
+[ ] calculate interpolated normals from triangle soup
+[ ] basic materials:
+    [x] diffuse
+    [x] emissive
+    [ ] mirror
+
+[x] add normals to triangle mesh
+[x] pathtracing!, limit the depth.
+[x] accumulator
+[x] rng for gpu
+[x] looking around with mouse
 
 sting 0.3
 -------------------------------------------------------------------------------
@@ -23,7 +26,7 @@ Adding the wavefront architecture!
 
 sting 0.4
 -------------------------------------------------------------------------------
-The BVH update!
+The BVH optimization update!
 
 [ ] MBVH instead of BVH
 [ ] top level BVH
@@ -34,9 +37,18 @@ The BVH update!
 
 
 
-Must have features
+@NOTES
 -------------------------------------------------------------------------------
-
+Currently using a `surface` in the CUDA code to write to the screen via a
+cudaArray, but this is not really necessary and you can just get a device
+pointer instead of a cudaArray which you should be able to also write to. I
+found online that cudaArrays are mapped in memory like texures, so optimized
+for 2D local access with a curve or something like that. However, this is
+completely unnecessary since we just run the code over the entire buffer and
+don't need 2D local access, so storing it like 2D access doesn't provide any
+benefit on that front. And removing the surface would make the code a little
+bit cleaner :) maybe faster. Probably not, but also not slower probably. Would
+have to try.
 
 
 
@@ -44,6 +56,7 @@ Must have features
 
 Just random stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
+[ ] normal packing and unpacking
 [ ] nested instancing
 [ ] debug statistics: framerate, ms per frame, maybe frame time histogram
 [ ] add functionality to have the render buffer size and the screen size

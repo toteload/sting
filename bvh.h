@@ -55,14 +55,16 @@ struct alignas(16) RenderTriangle {
     vec3 face_normal; u32 pad6;
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2) :
-        v0(v0), v1(v1), v2(v2) 
+        v0(v0), v1(v1), v2(v2), material(MATERIAL_DIFFUSE), color(1.0f), light_intensity(1.0f)
     {
-        n0 = n1 = n2 = triangle_normal(v0, v1, v2);
+        n0 = n1 = n2 = face_normal = triangle_normal(v2, v1, v0);
     }
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2, vec3 n0, vec3 n1, vec3 n2) : 
-        v0(v0), v1(v1), v2(v2), n0(n0), n1(n1), n2(n2)
-    { }
+        v0(v0), v1(v1), v2(v2), n0(n0), n1(n1), n2(n2), material(MATERIAL_DIFFUSE), color(1.0f), light_intensity(1.0f)
+    { 
+        face_normal = triangle_normal(v2, v1, v0);
+    }
 };
 
 #ifndef __CUDACC__

@@ -63,7 +63,7 @@ struct alignas(16) AABB {
 
         *t_out = tmin;
 
-        return tmax > 0.0f && tmax > tmin;
+        return tmax > 0.0f && tmax >= tmin;
     }
 
     static AABB empty() {
