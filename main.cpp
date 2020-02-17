@@ -130,7 +130,9 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
 
     for (u32 i = 0; i < triangles.size(); i++) {
         triangles[i].material = MATERIAL_DIFFUSE;
-        triangles[i].color = vec3(0.8f, 0.8f, 0.8f);
+        triangles[i].colorr = 0.8f;
+        triangles[i].colorg = 0.8f;
+        triangles[i].colorb = 0.8f;
     }
 
     return triangles;
@@ -229,13 +231,30 @@ int main(int argc, char** args) {
 
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
+
+    Scene scene;
     
     std::vector<RenderTriangle> triangles;
 
 #if 1
     auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f);
+    for (u32 i = 0; i < sphere_mesh.size(); i++) {
+        sphere_mesh[i].material = MATERIAL_MIRROR;
+    }
     triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
 #endif
+
+#if 0
+    MeshIndex sphere = scene.register_mesh(triangles.data(), triangles.size(), "sphere");
+
+    RenderInstance instances[3];
+    for (u32 i = 0; i < 3; i++) {
+        instance[i].mesh = sphere;
+        instance[i].transform.scale = vec3(1.0f);
+        instance[i].transform.offset = vec3(i * 0.6f, 0.0f, 0.0f);
+    }
+#endif
+
 
 #if 0
     auto light0 = RenderTriangle(vec3(0.0f, 0.4f, 0.0f),
@@ -261,7 +280,7 @@ int main(int argc, char** args) {
 #endif
 
 #if 0
-    fastObjMesh* mesh = fast_obj_read("bunny.obj");
+    fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
@@ -297,13 +316,25 @@ int main(int argc, char** args) {
 
                 vertex_index++;
             }
-            auto tri = RenderTriangle(vertices[2], vertices[1], vertices[0]);
-            tri.material = MATERIAL_DIFFUSE;
+            auto tri = RenderTriangle(vertices[0], vertices[1], vertices[2]);
+            tri.material = MATERIAL_MIRROR;
             triangles.push_back(tri);
         }
     }
 
     fast_obj_destroy(mesh);
+#endif
+
+#if 0
+    {
+        const vec3 n = triangles[0].face_normal;
+        const u32 packed = pack_normal(n);
+        const vec3 unpacked = unpack_normal(packed);
+        printf("normal: %f, %f, %f, packed: %d, unpacked: %f, %f, %f\n", 
+               n.x, n.y, n.z, 
+               packed, 
+               unpacked.x, unpacked.y, unpacked.z);
+    }
 #endif
 
     printf("%llu RenderTriangles created...\n", triangles.size());

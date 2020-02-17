@@ -2,43 +2,43 @@
 #include "common.h"
 
 #ifndef __CUDACC__
-const uint32_t BVH_PARTITION_BIN_COUNT = 8;
-const uint32_t BVH_MAX_PRIMITIVES_IN_LEAF = 8;
-const uint32_t BVH_MAX_DEPTH = 16;
+const u32 BVH_PARTITION_BIN_COUNT = 8;
+const u32 BVH_MAX_PRIMITIVES_IN_LEAF = 8;
+const u32 BVH_MAX_DEPTH = 16;
 
 union alignas(16) BVHAABB {
     AABB bounds;
 
     struct {
-        alignas(16) vec3 bmin; uint32_t index;
+        alignas(16) vec3 bmin; u32 index;
         alignas(16) vec3 bmax;
     };
 
-    BVHAABB(vec3 bmin, vec3 bmax, uint32_t index) : bmin(bmin), index(index), bmax(bmax) { }
+    BVHAABB(vec3 bmin, vec3 bmax, u32 index) : bmin(bmin), index(index), bmax(bmax) { }
 };
 
 static_assert(sizeof(BVHAABB) == sizeof(AABB), "sizes should be the same");
 
 struct PartitionResult {
     bool should_split;
-    uint32_t left_count;
+    u32 left_count;
 };
 
-PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, uint32_t start, uint32_t end) {
-    float lowest_cost = FLT_MAX;
-    float split_coord; 
-	uint32_t split_axis;
+PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, u32 start, u32 end) {
+    f32 lowest_cost = FLT_MAX;
+    f32 split_coord; 
+	u32 split_axis;
 
-    for (uint32_t bin = 1; bin < BVH_PARTITION_BIN_COUNT; bin++) {
-        const float offset = cast(float, bin) / BVH_PARTITION_BIN_COUNT;
+    for (u32 bin = 1; bin < BVH_PARTITION_BIN_COUNT; bin++) {
+        const f32 offset = cast(f32, bin) / BVH_PARTITION_BIN_COUNT;
 
-        for (uint32_t axis = 0; axis < 3; axis++) {
-            const float split = node_bounds.bmin[axis] + offset * (node_bounds.bmax[axis] - node_bounds.bmin[axis]);
+        for (u32 axis = 0; axis < 3; axis++) {
+            const f32 split = node_bounds.bmin[axis] + offset * (node_bounds.bmax[axis] - node_bounds.bmin[axis]);
 
-            uint32_t left_count = 0, right_count = 0;
+            u32 left_count = 0, right_count = 0;
             AABB left_bounds = AABB::empty(), right_bounds = AABB::empty();
 
-            for (uint32_t i = start; i < end; i++) {
+            for (u32 i = start; i < end; i++) {
                 if (aabbs[i].bounds.centroid()[axis] <= split) {
                     left_bounds = left_bounds.merge(aabbs[i].bounds);
                     left_count++;
@@ -48,7 +48,7 @@ PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, uint32_t start, uint
                 }
             }
 
-            const float cost = left_bounds.surface_area() * left_count + right_bounds.surface_area() * right_count;
+            const f32 cost = left_bounds.surface_area() * left_count + right_bounds.surface_area() * right_count;
             if (cost < lowest_cost) {
                 lowest_cost = cost;
                 split_coord = split;
@@ -57,15 +57,15 @@ PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, uint32_t start, uint
         }
     }
 
-    const float current_node_cost = node_bounds.surface_area() * (end - start);
+    const f32 current_node_cost = node_bounds.surface_area() * (end - start);
 
     if (current_node_cost <= lowest_cost) {
         return { false, 0 };
     }
 
-    uint32_t first_right = start;
+    u32 first_right = start;
 
-    for (uint32_t i = start; i < end; i++) {
+    for (u32 i = start; i < end; i++) {
         if (aabbs[i].bounds.centroid()[split_axis] <= split_coord) {
             std::swap(aabbs[first_right], aabbs[i]);
             first_right++;
@@ -76,10 +76,10 @@ PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, uint32_t start, uint
 }
 
 void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes, 
-                     uint32_t start, uint32_t end, 
-                     uint32_t this_node, uint32_t depth) 
+                     u32 start, u32 end, 
+                     u32 this_node, u32 depth) 
 {
-    const uint32_t count = end - start;
+    const u32 count = end - start;
 
     if (count <= BVH_MAX_PRIMITIVES_IN_LEAF || depth == BVH_MAX_DEPTH) {
         // This is a leaf node
@@ -97,7 +97,7 @@ void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes,
         return;
     }
 
-    const uint32_t left = nodes.size();
+    const u32 left = nodes.size();
 
     nodes[this_node].count = 0;
     nodes[this_node].left_first = left;
@@ -106,14 +106,14 @@ void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes,
     nodes.push_back({});
     nodes.push_back({});
 
-    const uint32_t mid = start + result.left_count;
+    const u32 mid = start + result.left_count;
 
     AABB left_bounds = AABB::empty(), right_bounds = AABB::empty();
-    for (uint32_t i = start; i < mid; i++) {
+    for (u32 i = start; i < mid; i++) {
         left_bounds = left_bounds.merge(aabbs[i].bounds);
     }
 
-    for (uint32_t i = mid; i < end; i++) {
+    for (u32 i = mid; i < end; i++) {
         right_bounds = right_bounds.merge(aabbs[i].bounds);
     }
 
@@ -124,12 +124,12 @@ void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes,
     build_recursive(aabbs, nodes, mid,   end, left + 1, depth + 1);
 }
 
-std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, uint32_t triangle_count) {
+std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count) {
     std::vector<BVHAABB> aabbs;
     aabbs.reserve(triangle_count);
 
     AABB root_bounds = AABB::empty();
-    for (uint32_t i = 0; i < triangle_count; i++) {
+    for (u32 i = 0; i < triangle_count; i++) {
         const AABB bounds = AABB::for_triangle(triangles[i].v0,
                                                triangles[i].v1,
                                                triangles[i].v2);
@@ -152,7 +152,7 @@ std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, uint32_t
 
     // Reorder the triangles
     std::vector<RenderTriangle> tmp(triangles, triangles + triangle_count);
-    for (uint32_t i = 0; i < triangle_count; i++) {
+    for (u32 i = 0; i < triangle_count; i++) {
         triangles[i] = tmp[aabbs[i].index];
     }
 
@@ -161,63 +161,131 @@ std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, uint32_t
 #endif
 
 #ifdef __CUDACC__
-template<typename T, uint32_t Capacity>
+const u32 BVH_NO_HIT = cast(u32, 1) << 31;
+
+template<typename T, u32 Capacity>
 struct Stack {
     T data[Capacity];
-    uint32_t top;
+    u32 top;
 
     Stack() : top(0) { }
     __device__ Stack(std::initializer_list<T> l) : top(l.size()) {
-        for (uint32_t i = 0; i < l.size(); i++) {
+        for (u32 i = 0; i < l.size(); i++) {
             data[i] = l.begin()[i];
         }
     }
 
     __device__ bool is_empty() const { return top == 0; }
-    uint32_t capacity() const { return Capacity; }
-    uint32_t size() const { return top; }
+    u32 capacity() const { return Capacity; }
+    u32 size() const { return top; }
     __device__ void push(T v) { data[top++] = v; }
     __device__ T pop() { return data[--top]; }
     T peek() const { return data[top-1]; }
 };
 
-__device__ bool bvh_intersect_triangles(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray, 
-                                        float* t_out, float* u_out, float* v_out, uint32_t* tri_id_out)
+__device__
+BVHInstanceIntersection bvh_intersect_instance_triangles(BVHNode const * instance_bvh, RenderInstance const * instances,
+                                                         BVHNode const * mesh_bvh,     RenderTriangle const * triangles,
+                                                         Ray ray)
 {
     // Create a stack and initialize it with the root node
-    Stack<uint32_t, 32> stack({ 0 });
+    Stack<u32, 32> stack({ 0 });
 
     const vec3 ray_inv_dir = ray.dir.inverse();
 
-    float t_nearest = FLT_MAX;
-    float u_best, v_best;
-    uint32_t tri_id = 0;
+    BVHTriangleIntersection best;
+    best.t = FLT_MAX;
+    best.id = BVH_NO_HIT;
+
+    u32 instance_id;
+
+    while (!stack.is_empty()) {
+        const BVHNode& node = instance_bvh[stack.pop()];
+
+        if (node.is_leaf()) {
+            for (u32 i = 0; i < node.count; i++) {
+                const RenderInstance& instance = instances[node.left_first + i]; 
+                const auto isect = bvh_intersect_triangles(mesh_bvh + instance.mesh.bvh_offset,
+                                                           triangles + instance.mesh.triangle_offset,
+                                                           ray);
+                if (isect.hit() && isect.t < best.t) {
+                    instance_id = node.left_first + i;
+                    best = isect;
+                }
+            }
+        } else {
+            const BVHNode& left  = instance_bvh[node.left_first];
+            const BVHNode& right = instance_bvh[node.left_first + 1];
+
+            f32 t_left, t_right;
+            const bool hit_left  = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
+            const bool hit_right = right.bounds.intersect(ray.pos, ray_inv_dir, &t_right);
+
+            if (hit_left && hit_right) {
+                if (t_left < t_right) {
+                    stack.push(node.left_first);
+                    stack.push(node.left_first + 1);
+                } else {
+                    stack.push(node.left_first + 1);
+                    stack.push(node.left_first);
+                }
+            } else {
+                if (hit_left)  { stack.push(node.left_first); }
+                if (hit_right) { stack.push(node.left_first + 1); }
+            }
+        }
+    }
+
+    if (best.id == BVH_NO_HIT) {
+        BVHInstanceIntersection isect;
+        isect.instance_id = BVH_NO_HIT;
+        return isect;
+    }
+
+    BVHInstanceIntersection isect;
+    isect.instance_id = instance_id;
+    isect.triangle_id = best.id + instances[instance_id].mesh.triangle_offset;
+    isect.t = best.t;
+    isect.u = best.u;
+    isect.v = best.v;
+
+    return isect;
+}
+
+__device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh, 
+                                                           RenderTriangle const * triangles, 
+                                                           Ray ray) 
+{
+    // Create a stack and initialize it with the root node
+    Stack<u32, 32> stack({ 0 });
+
+    const vec3 ray_inv_dir = ray.dir.inverse();
+
+    BVHTriangleIntersection best;
+    best.t = FLT_MAX;
+    best.id = BVH_NO_HIT;
 
     while (!stack.is_empty()) {
         const BVHNode& node = bvh[stack.pop()];
 
         if (node.is_leaf()) {
-            for (uint32_t i = 0; i < node.count; i++) {
-                float t, u, v;
-                if (triangle_intersect(ray, 
-                                       triangles[node.left_first+i].v0, 
-                                       triangles[node.left_first+i].v1, 
-                                       triangles[node.left_first+i].v2, 
-                                       &t, &u, &v))
-                {
-                    if (t < t_nearest) {
-                        t_nearest = t;
-                        u_best = u;
-                        v_best = v;
-                        tri_id = node.left_first + i;
-                    }
+            for (u32 i = 0; i < node.count; i++) {
+                const auto isect = triangle_intersect(ray, 
+                                                      triangles[node.left_first+i].v0, 
+                                                      triangles[node.left_first+i].v1, 
+                                                      triangles[node.left_first+i].v2);
+                if (isect.hit && isect.t < best.t) {
+                    best.id = node.left_first + i;
+                    best.t  = isect.t;
+                    best.u  = isect.u;
+                    best.v  = isect.v;
                 }
             }
         } else {
             const BVHNode& left = bvh[node.left_first];
             const BVHNode& right = bvh[node.left_first + 1];
 
-            float t_left, t_right;
+            f32 t_left, t_right;
             const bool hit_left = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
             const bool hit_right = right.bounds.intersect(ray.pos, ray_inv_dir, &t_right);
 
@@ -236,18 +304,13 @@ __device__ bool bvh_intersect_triangles(BVHNode const * bvh, RenderTriangle cons
         }
     }
 
-    *t_out = t_nearest;
-    *u_out = u_best;
-    *v_out = v_best;
-    *tri_id_out = tri_id;
-
-    return t_nearest != FLT_MAX;
+    return best;
 }
 
 __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTriangle const * triangles, 
-                                                   Ray ray, float max_dist) 
+                                                   Ray ray) 
 {
-    Stack<uint32_t, 32> stack({ 0 });
+    Stack<u32, 32> stack({ 0 });
 
     const vec3 ray_inv_dir = ray.dir.inverse();
 
@@ -255,14 +318,12 @@ __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTr
         const BVHNode& node = bvh[stack.pop()];
 
         if (node.is_leaf()) {
-            for (uint32_t i = 0; i < node.count; i++) {
-                float t, u, v;
-                const bool hit = triangle_intersect(ray, 
-                                                    triangles[node.left_first+i].v0, 
-                                                    triangles[node.left_first+i].v1, 
-                                                    triangles[node.left_first+i].v2, 
-                                                    &t, &u, &v);
-                if (hit && t < max_dist) {
+            for (u32 i = 0; i < node.count; i++) {
+                const auto isect = triangle_intersect(ray, 
+                                                      triangles[node.left_first+i].v0, 
+                                                      triangles[node.left_first+i].v1, 
+                                                      triangles[node.left_first+i].v2);
+                if (isect.hit && isect.t < ray.tmax) {
                     return true;
                 }
             }
@@ -270,7 +331,7 @@ __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTr
             const BVHNode& left = bvh[node.left_first];
             const BVHNode& right = bvh[node.left_first + 1];
 
-            float t_left, t_right;
+            f32 t_left, t_right;
             const bool hit_left = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
             const bool hit_right = right.bounds.intersect(ray.pos, ray_inv_dir, &t_right);
 
