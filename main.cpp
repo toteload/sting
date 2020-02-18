@@ -64,6 +64,11 @@ void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointC
 void render_buffer_to_screen(cudaArray_const_t array, vec4* screen_buffer, uint32_t width, uint32_t height);
 void accumulate(vec4* frame_buffer, vec4* accumulator, vec4* screen_buffer, u32 width, u32 height, u32 acc_frame);
 
+void render_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
+                u32 const * lights, u32 light_count,
+                PointCamera camera, vec4 const * skybox,
+                vec4* buffer, u32 width, u32 height, u32 framenum);
+
 #if 1
 std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius) {
     if (rows < 2 || columns < 3) {
@@ -244,19 +249,7 @@ int main(int argc, char** args) {
     triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
 #endif
 
-#if 0
-    MeshIndex sphere = scene.register_mesh(triangles.data(), triangles.size(), "sphere");
-
-    RenderInstance instances[3];
-    for (u32 i = 0; i < 3; i++) {
-        instance[i].mesh = sphere;
-        instance[i].transform.scale = vec3(1.0f);
-        instance[i].transform.offset = vec3(i * 0.6f, 0.0f, 0.0f);
-    }
-#endif
-
-
-#if 0
+#if 1
     auto light0 = RenderTriangle(vec3(0.0f, 0.4f, 0.0f),
                                  vec3(0.3f, 0.4f, 0.0f),
                                  vec3(0.0f, 0.5f, 0.3f));
@@ -340,6 +333,13 @@ int main(int argc, char** args) {
     printf("%llu RenderTriangles created...\n", triangles.size());
     
     std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size());
+
+    std::vector<u32> lights;
+    for (u32 i = 0; i < triangles.size(); i++) {
+        if (triangle.material == MATERIAL_EMISSIVE) {
+            lights.push_back(i);
+        }
+    }
 
     printf("Created %llu bvh nodes...\n", bvh.size());
     verify_bvh(bvh.data(), bvh.size(), triangles.size());

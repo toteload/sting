@@ -317,6 +317,33 @@ __global__ void intersect_test(BVHNode const * bvh, RenderTriangle const * trian
     }
 }
 
+__global__ void nee_test(BVHNode const * bvh, RenderTriangle const * triangles, 
+                         u32 const * lights, u32 light_count,
+                         PointCamera camera, vec4 const * skybox,
+                         vec4* buffer, u32 width, u32 height, u32 framenum)
+{
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    const int id = y * width + x;
+    const u32 seed = (id + framenum * PRIME0) * PRIME1;
+    RngXor32 rng(seed);
+
+    // nx and ny are in range (-1.0f, 1.0f)
+    const float nx = (2.0f * float(x) + rng.random_f32()) / width  - 1.0f;
+    const float ny = (2.0f * float(y) + rng.random_f32()) / height - 1.0f;
+
+    const Ray ray = camera.create_ray(nx, ny);
+
+    const vec3 c = pathtrace_nee(bvh, triangles, lights, light_count, ray, rng, skybox);
+    
+    buffer[id] = vec4(c, 1.0f);
+}
+
 __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera,
                          vec4 const * skybox,
                          vec4* buffer, u32 width, u32 height, u32 framenum)
@@ -371,6 +398,16 @@ void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera c
     dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
     test_001<<<blocks, threads>>>(bvh, triangles, camera, skybox, buffer, width, height, framenum);
     //intersect_test<<<blocks, threads>>>(bvh, triangles, camera, buffer, width, height);
+}
+
+void render_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
+                u32 const * lights, u32 light_count,
+                PointCamera camera, vec4 const * skybox,
+                vec4* buffer, u32 width, u32 height, u32 framenum) 
+{
+    dim3 threads = dim3(16, 16, 1);
+    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
+    nee_test<<<blocks, threads>>>(bvh, triangles, lights, light_count, camera, skybox, buffer, width, height, framenum);
 }
 
 void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 

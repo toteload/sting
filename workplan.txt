@@ -10,7 +10,7 @@ stuff with normals:
 [ ] normal packing
 
 [ ] next event estimation
-    [ ] need a list of all the lights
+    [x] need a list of all the lights
 
     [ ] also take the skydome into consideration as a direct light, this could
         be a bit tricky but it is possible. read it in an article :)
@@ -29,7 +29,7 @@ stuff with normals:
 
 sting 0.2.1
 -------------------------------------------------------------------------------
-[ ] give the different rendering methods better names.
+[ ] give the different rendering functions better names in fillimage.cu
 [ ] rename fillimage.cu :|
 [ ] verify the output range of random_u32_max
 [ ] ray struct now also contains t_min and t_max, change intersecting
