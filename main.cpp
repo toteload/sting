@@ -70,7 +70,7 @@ void render_nee(BVHNode const * bvh, RenderTriangle const * triangles,
                 vec4* buffer, u32 width, u32 height, u32 framenum);
 
 #if 1
-std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius) {
+std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, vec3 pos) {
     if (rows < 2 || columns < 3) {
         return { };
     }
@@ -83,17 +83,17 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
             const f32 phi = i * M_PI / cast(f32, rows);
             const f32 theta = (cast(f32, j) / cast(f32, columns)) * 2.0f * M_PI;
             const vec3 n = spherical_to_cartesian(phi, theta);
-            pts.push_back(radius * n);
+            pts.push_back(pos + radius * n);
             normals.push_back(n);
         }
     }
 
     const size_t top = pts.size();
-    pts.push_back(radius * vec3(0.0f, 1.0f, 0.0f));
+    pts.push_back(pos + radius * vec3(0.0f, 1.0f, 0.0f));
     normals.push_back(vec3(0.0f, 1.0f, 0.0f));
 
     const size_t bottom = pts.size();
-    pts.push_back(radius * vec3(0.0f, -1.0f, 0.0f));
+    pts.push_back(pos + radius * vec3(0.0f, -1.0f, 0.0f));
     normals.push_back(vec3(0.0f, -1.0f, 0.0f));
 
     std::vector<RenderTriangle> triangles;
@@ -242,11 +242,17 @@ int main(int argc, char** args) {
     std::vector<RenderTriangle> triangles;
 
 #if 1
-    auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f);
+    auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f, vec3(0.0f, 0.0f, 0.0f));
     for (u32 i = 0; i < sphere_mesh.size(); i++) {
-        sphere_mesh[i].material = MATERIAL_MIRROR;
+        sphere_mesh[i].material = MATERIAL_DIFFUSE;
     }
     triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
+
+    auto spheremesh0 = generate_sphere_mesh(36, 36, 0.3f, vec3(0.4f, 0.0f, 0.0f));
+    for (u32 i = 0; i < spheremesh0.size(); i++) {
+        spheremesh0[i].material = MATERIAL_DIFFUSE;
+    }
+    triangles.insert(triangles.end(), spheremesh0.begin(), spheremesh0.end());
 #endif
 
 #if 1
@@ -254,21 +260,24 @@ int main(int argc, char** args) {
                                  vec3(0.3f, 0.4f, 0.0f),
                                  vec3(0.0f, 0.5f, 0.3f));
     light0.material = MATERIAL_EMISSIVE;
-    light0.light_intensity = 10.0f;
+    light0.colorr = light0.colorg = 0.0f;
+    light0.light_intensity = 1.0f;
     triangles.push_back(light0);
 
     auto light1 = RenderTriangle(vec3(0.0f, -0.4f, 0.0f),
                                  vec3(0.3f, -0.4f, 0.0f),
                                  vec3(0.0f, -0.5f, 0.3f));
     light1.material = MATERIAL_EMISSIVE;
-    light1.light_intensity = 10.0f;
+    light1.colorb = light1.colorg = 0.0f;
+    light1.light_intensity = 1.0f;
     triangles.push_back(light1);
 
     auto light2 = RenderTriangle(vec3(0.0f, 0.0f, -0.8f),
                                  vec3(0.3f, 0.0f, -0.8f),
                                  vec3(0.3f, 0.5f, -0.8f));
     light2.material = MATERIAL_EMISSIVE;
-    light2.light_intensity = 10.0f;
+    light2.colorb = light2.colorr = 0.0f;
+    light2.light_intensity = 4.0f;
     triangles.push_back(light2);
 #endif
 
@@ -336,13 +345,14 @@ int main(int argc, char** args) {
 
     std::vector<u32> lights;
     for (u32 i = 0; i < triangles.size(); i++) {
-        if (triangle.material == MATERIAL_EMISSIVE) {
+        if (triangles[i].material == MATERIAL_EMISSIVE) {
             lights.push_back(i);
+            printf("light found at %d\n", i);
         }
     }
 
     printf("Created %llu bvh nodes...\n", bvh.size());
-    verify_bvh(bvh.data(), bvh.size(), triangles.size());
+    //verify_bvh(bvh.data(), bvh.size(), triangles.size());
 
     RenderTriangle* gpu_triangles;
     CUDA_CHECK(cudaMalloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
@@ -350,8 +360,12 @@ int main(int argc, char** args) {
     BVHNode* gpu_bvh;
     CUDA_CHECK(cudaMalloc(&gpu_bvh, bvh.size() * sizeof(BVHNode)));
 
+    u32* gpu_lights;
+    CUDA_CHECK(cudaMalloc(&gpu_lights, lights.size() * sizeof(u32)));
+
     CUDA_CHECK(cudaMemcpy(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_lights, lights.data(), lights.size() * sizeof(u32), cudaMemcpyHostToDevice));
 
     // Skybox loading
     // --------------------------------------------------------------------- //
@@ -399,6 +413,9 @@ int main(int argc, char** args) {
     const uint64_t frequency = SDL_GetPerformanceFrequency();
     uint64_t previous_time = SDL_GetPerformanceCounter();
 
+    u32 rendermethod = 0;
+    u32 accumulate_toggle = 1;
+
     bool running = true;
     while (running) {
         uint64_t current_time = SDL_GetPerformanceCounter();
@@ -427,6 +444,8 @@ int main(int argc, char** args) {
                 case SDLK_DOWN:   { keymap.down = 1; } break;
                 case SDLK_LEFT:   { keymap.left = 1; } break;
                 case SDLK_RIGHT:  { keymap.right = 1; } break;
+                case SDLK_1:      { rendermethod ^= 1; acc_frame = 0; } break;
+                case SDLK_2:      { accumulate_toggle ^= 1; acc_frame = 0; } break;
                 }
             } break;
             case SDL_KEYUP: {
@@ -457,15 +476,36 @@ int main(int argc, char** args) {
         if (mouse_x != 0 || mouse_y != 0) { acc_frame = 0; }
 
         camera.inclination += 0.005f * mouse_y;
-        camera.azimuth += 0.005f * mouse_x;
+        camera.azimuth     += 0.005f * mouse_x;
 
         camera.update_uvw();
 
+        switch (rendermethod) {
+        case 0: { 
+            render(gpu_bvh, gpu_triangles, camera, skybox_buffer, 
+                   frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
+        } break;
+        case 1: {
+            render_nee(gpu_bvh, gpu_triangles, gpu_lights, lights.size(), camera, skybox_buffer,
+                       frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
+        } break;
+        }
+
+#if 0
+#if 1
         render(gpu_bvh, gpu_triangles, camera, skybox_buffer, 
                frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
-        accumulate(frame_buffer, accumulator, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, acc_frame);
-        render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
-        //render_buffer_to_screen(screen_array, frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+#else
+        render_nee(gpu_bvh, gpu_triangles, gpu_lights, lights.size(), camera, skybox_buffer,
+                   frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
+#endif
+#endif
+        if (accumulate_toggle) {
+            accumulate(frame_buffer, accumulator, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, acc_frame);
+            render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+        } else {
+            render_buffer_to_screen(screen_array, frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+        }
 
         glBlitNamedFramebuffer(gl_frame_buffer, 
                                0, 0, 0, 

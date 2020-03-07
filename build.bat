@@ -1,7 +1,7 @@
 @echo off
 
 :: build the CUDA files
-nvcc -O3 -Xcompiler "/MD /Oi" -c fillimage.cu
+nvcc -O3 -Xcompiler "/MD /Oi /fp:fast" -c fillimage.cu
 
 ::python genglextensions.py
 

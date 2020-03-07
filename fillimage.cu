@@ -9,20 +9,6 @@ surface<void, cudaSurfaceType2D> screen_surface;
 #define PRIME0 100030001
 #define PRIME1 396191693
 
-#if 0
-struct Scene {
-    BVHNode* bvh;
-    RenderTriangle* triangles;
-
-    // Indices into the `triangles` array of all the emissive triangles
-    u32 light_count;
-    u32* lights;
-
-    u32 skybox_width, skybox_height;
-    vec4* skybox;
-};
-#endif
-
 __global__ void normal_test_pass(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera,
                                  vec4* buffer, u32 width, u32 height, u32 framenum)
 {
@@ -57,27 +43,25 @@ __global__ void normal_test_pass(BVHNode const * bvh, RenderTriangle const * tri
 __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triangles, u32 const * lights,
                               u32 light_count, Ray ray, RngXor32 rng, vec4 const * skybox)
 {
-    vec3 emission = vec3::zero();
-    vec3 throughput = vec3(1.0f);
+    vec3 emission = vec3(0.0f, 0.0f, 0.0f);
+    vec3 throughput = vec3(1.0f, 1.0f, 1.0f);
     bool allow_emissive = true;
 
-    for (u32 depth = 0; depth < 3; depth++) {
-        const auto isect = bvh_intersect_triangles(bvh, triangles, ray);
+    for (u32 depth = 0; depth < 4; depth++) {
+        const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
 
         if (!isect.hit()) {
-            if (allow_emissive) {
-                //Sample the skybox
-                f32 inclination, azimuth;
-                cartesian_to_spherical(ray.dir, &inclination, &azimuth);
+            //Sample the skybox
+            f32 inclination, azimuth;
+            cartesian_to_spherical(ray.dir, &inclination, &azimuth);
 
-                // dimensions of the skybox are hardcoded
-                // float to uint round down
-                const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
-                const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
-                const vec4 sky = skybox[vi * 4096 + ui];
-                emission += throughput * vec3(sky.r, sky.g, sky.b);
-            }
-
+            // dimensions of the skybox are hardcoded
+            // float to uint round down
+            const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
+            const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
+            const vec4 sky = skybox[vi * 4096 + ui];
+            break;
+            emission += throughput * vec3(sky.r, sky.g, sky.b);
             break;
         }
 
@@ -92,30 +76,32 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
             const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const vec3 p = ray.pos + isect.t * ray.dir;
 
-            const RenderTriangle& light = triangles[lights[rng.random_u32_max(light_count)]];
-            const vec3 point_on_light = triangle_random_point(tri.v0, tri.v1, tri.v2, 
+            //const RenderTriangle& light = triangles[lights[rng.random_u32_max(light_count)]];
+            const u32 random_light_id = lights[rng.random_u32_max(light_count)];
+            const RenderTriangle& light = triangles[random_light_id];
+            const vec3 point_on_light = triangle_random_point(light.v0, light.v1, light.v2, 
                                                               rng.random_f32(), rng.random_f32());
             const vec3 dir_to_light = (point_on_light - p).normalize();
-            const vec3 light_normal = tri.face_normal;
 
             // angle between the normal of the surface of the light and the ray
-            // NOTE: not sure why we even care about this? Shouldn't a light
-            // emit in all direction regardless of the angle to the surface?
-            const f32 coso = dot(-1.0f * dir_to_light, light_normal);
+            // this is only used if you want your emissive triangles to only
+            // emit light from one side.
+            //const vec3 light_normal = light.face_normal;
+            //const f32 coso = dot(-1.0f * dir_to_light, light_normal);
 
             // angle between the normal of the diffuse surface and the ray towards the light
             const f32 cosi = dot(dir_to_light, n); 
 
-            if (coso > 0.0f && cosi > 0.0f) {
-                const Ray shadow_ray(p + 0.0001f * dir_to_light, dir_to_light);
+            if (cosi > 0.0f) {
+                const Ray shadow_ray(p + 0.0001f * n, dir_to_light);
                 const auto light_isect = bvh_intersect_triangles(bvh, triangles, shadow_ray);
 
-                if (light_isect.hit() && light_isect.id == isect.id) {
-                    const vec3 brdf = (1.0f / M_PI) * tri.color();
+                if (light_isect.hit() && light_isect.id == random_light_id) {
+                    const vec3 brdf = tri.color();
+                    const f32 solid_angle_estimation = fabs(triangle_solid_angle(light.v0 - p, 
+                                                                                 light.v1 - p, 
+                                                                                 light.v2 - p));
 
-                    // this solid angle estimation is only a good approximation if the light is not
-                    // too close. maybe look for something better or apply some sort of adaptive method.
-                    const f32 solid_angle_estimation = tri.area * coso / (point_on_light - p).length_squared();
                     // the probability of hitting this light is the proportion of the hemisphere
                     // covered by this light (the solid angle)
                     const f32 light_pdf = 1.0f / solid_angle_estimation;
@@ -139,7 +125,8 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
             if (allow_emissive) {
                 emission += throughput * tri.light_intensity * tri.color();
             }
-            break;
+
+            return emission;
         } break;
         case MATERIAL_MIRROR: {
             const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
@@ -158,6 +145,60 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
 __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const * triangles, 
                                        Ray ray, RngXor32 rng, vec4 const * skybox) 
 {
+    vec3 emission = vec3(0.0f);
+    vec3 throughput = vec3(1.0f);
+
+    for (u32 depth = 0; depth < 4; depth++) {
+        const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
+
+        if (!isect.hit()) {
+            //Sample the skybox
+            f32 inclination, azimuth;
+            cartesian_to_spherical(ray.dir, &inclination, &azimuth);
+            // float to uint round down
+            const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
+            const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
+            const vec4 sky = skybox[vi * 4096 + ui];
+            break;
+            emission += throughput * vec3(sky.r, sky.g, sky.b);
+            break;
+        }
+
+        const RenderTriangle& tri = triangles[isect.id];
+
+        switch (tri.material) {
+        case MATERIAL_DIFFUSE: {
+            const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
+            const vec3 p = ray.pos + isect.t * ray.dir;
+
+            const vec3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
+
+            vec3 t, b;
+            build_orthonormal_basis(n, &t, &b);
+            const vec3 scatter_direction = to_world_space(scatter_sample, n, t, b);
+
+            const vec3 brdf = tri.color();
+
+            throughput *= brdf;
+
+            // Set the ray for the next loop iteration
+            ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
+        } break;
+        case MATERIAL_EMISSIVE: {
+            emission += throughput * tri.light_intensity * tri.color();
+            return emission;
+        } break;
+        case MATERIAL_MIRROR: {
+            const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
+            const vec3 p = ray.pos + isect.t * ray.dir;
+            const vec3 reflection = reflect(n, ray.dir);
+            ray = Ray(p + reflection * 0.0001f, reflection);
+        } break;
+        }
+    }
+
+    return emission;
+#if 0
     vec3 acc = vec3(1.0f);
 
     for (u32 depth = 0; ; depth++) {
@@ -209,6 +250,7 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
         } break;
         }
     }
+#endif
 }
 
 __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, 

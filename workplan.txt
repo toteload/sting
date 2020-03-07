@@ -9,12 +9,8 @@ stuff with normals:
 [ ] calculate interpolated normals from triangle soup
 [ ] normal packing
 
-[ ] next event estimation
+[x] next event estimation
     [x] need a list of all the lights
-
-    [ ] also take the skydome into consideration as a direct light, this could
-        be a bit tricky but it is possible. read it in an article :)
-
 [x] cosine weighted path tracing
 [x] basic materials:
     [x] diffuse
@@ -88,6 +84,9 @@ Just stuff I may want to add or change but not yet planned in
 [ ] add Disney BRDF (looks pretty?)
 [ ] random number generation on the GPU or some sort of pseudo random sampling
     BLUE NOISE!
+[ ] also take the skydome into consideration as a direct light for nee, this could
+    be a bit tricky but it is possible. there is also some text about this in
+    PBRT book.
 
 sting 0.1
 -------------------------------------------------------------------------------

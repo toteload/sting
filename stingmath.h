@@ -158,20 +158,6 @@ void build_orthonormal_basis(const vec3& n, vec3* t, vec3* b) {
     *t = (fabs(n.x) > fabs(n.y)) ? vec3(n.z, 0.0f, -n.x).normalize() : 
                                    vec3(0.0f, -n.z, n.y).normalize();
     *b = cross(n, *t);
-#if 0
-    // This method has some strange stuff going on near n = (0, 0, -1)
-    // Frisvad method
-    //if (n.z < -0.9999999f) {
-    if (n.z == -1.0f) {
-        *t = vec3( 0.0f, -1.0f, 0.0f);
-        *b = vec3(-1.0f,  0.0f, 0.0f);
-    } else {
-        const f32 r = 1.0f / (1.0f + n.z);
-        const f32 s = -n.x * n.y * r;
-        *t = vec3(1.0f - n.x * n.x * r, s, -n.x);
-        *b = vec3(s, 1.0f - n.y * n.y * r, -n.y);
-    }
-#endif
 }
 
 __device__ inline
@@ -322,6 +308,73 @@ inline __device__ vec3 unpack_normal(u32 p) {
 
 // triangle functions
 // ----------------------------------------------------------------------------
+
+__host__ __device__ inline
+f32 triangle_solid_angle(const vec3& a, const vec3& b, const vec3& c) {
+    const f32 da = a.length();
+    const f32 db = b.length();
+    const f32 dc = c.length();
+
+    return 2.0f * atan2f(dot(a, cross(b, c)), 
+                         //da * (db * (dc * (1 + dot(a, b)) + dot(a, c)) + dot(b, c)));
+                         da*db*dc + dot(a, b)*dc + dot(a, c)*db + dot(b, c)*da);
+}
+
+__host__ __device__ inline
+f32 triangle_solid_angle_hemisphere(const vec3& a, const vec3& b, const vec3& c) {
+    const u32 a_below = a.y < 0;
+    const u32 b_below = b.y < 0;
+    const u32 c_below = c.y < 0;
+
+    const u32 below_hemisphere = a_below + b_below + c_below;
+
+    switch (below_hemisphere) {
+    case 3: { return 0.0f; }
+    case 2: { 
+        // two points of the triangle are below the hemisphere so the part of
+        // the triangle that is in the hemisphere is shaped like a triangle
+        vec3 top, p0, p1;
+        if (!a_below) { top = a; p0 = b; p1 = c; }
+        if (!b_below) { top = b; p0 = c; p1 = a; }
+        if (!c_below) { top = c; p0 = a; p1 = b; }
+
+        const vec3 e0 = (p0 - top);
+        const vec3 e1 = (p1 - top);
+
+        const vec3 bb = (-top.y / e0.y) * e0;
+        const vec3 cc = (-top.y / e1.y) * e1;
+
+        return fabs(triangle_solid_angle(top, bb, cc));
+    } break;
+    case 1: { 
+        // one point is below the hemisphere so the visible part is a 4-gon.
+        // We need to do 2 triangle solid angle calculations.
+        // Here we calculate the solid angle of the whole triangle and then
+        // subtract the solid angle of the triangular part that is below the
+        // hemisphere.
+        // You can also divide the 4-gon into two triangles and then sum
+        // their areas. This might be a bit faster, because there are some
+        // overlapping calculations then.
+
+        vec3 bot, p0, p1;
+        if (a_below) { bot = a; p0 = b; p1 = c; }
+        if (b_below) { bot = b; p0 = c; p1 = a; }
+        if (c_below) { bot = c; p0 = a; p1 = b; }
+
+        const vec3 e0 = (p0 - bot);
+        const vec3 e1 = (p1 - bot);
+
+        const vec3 bb = (-bot.y / e0.y) * e0;
+        const vec3 cc = (-bot.y / e1.y) * e1;
+
+        return fabs(triangle_solid_angle(a, b, c)) - fabs(triangle_solid_angle(bot, bb, cc));
+    } break;
+    case 0: { return triangle_solid_angle(a, b, c); }
+
+    // Just to shut up compiler
+    default: { return 0; }
+    } 
+}
 
 __host__ __device__ inline
 vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {

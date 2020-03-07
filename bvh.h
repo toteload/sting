@@ -57,7 +57,8 @@ struct alignas(16) RenderTriangle {
         v0(v0), v1(v1), v2(v2), 
         material(MATERIAL_DIFFUSE), 
         colorr(1.0f), colorg(1.0f), colorb(1.0f), 
-        light_intensity(1.0f)
+        light_intensity(1.0f),
+        area(triangle_area(v0, v1, v2))
     {
         n0 = n1 = n2 = face_normal = triangle_normal(v0, v1, v2);
     }
@@ -68,7 +69,8 @@ struct alignas(16) RenderTriangle {
         n0(n0), n1(n1), n2(n2), 
         material(MATERIAL_DIFFUSE), 
         colorr(1.0f), colorg(1.0f), colorb(1.0f), 
-        light_intensity(1.0f)
+        light_intensity(1.0f),
+        area(triangle_area(v0, v1, v2))
     { 
         face_normal = triangle_normal(v0, v1, v2);
     }
