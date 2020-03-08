@@ -7,7 +7,7 @@ stuff with normals:
     and barycentric coordinates orientation. Make this consistent in the code.
     [ ] normal_lerp, RenderTriangle constructor, maybe more
 [ ] calculate interpolated normals from triangle soup
-[ ] normal packing
+[ ] multiple importance sampling
 
 [x] next event estimation
     [x] need a list of all the lights
@@ -26,7 +26,7 @@ stuff with normals:
 sting 0.2.1
 -------------------------------------------------------------------------------
 [ ] give the different rendering functions better names in fillimage.cu
-[ ] rename fillimage.cu :|
+[ ] rename fillimage.cu
 [ ] verify the output range of random_u32_max
 [ ] ray struct now also contains t_min and t_max, change intersecting
     functions to actually use these if necessary, intersect codes don't need
@@ -56,15 +56,6 @@ The BVH optimization update!
 
 [ ] top level BVH
 [ ] MBVH instead of BVH
-
-
-
-
-
-
-
-
-
 
 
 

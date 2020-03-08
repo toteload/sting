@@ -76,7 +76,6 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
             const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const vec3 p = ray.pos + isect.t * ray.dir;
 
-            //const RenderTriangle& light = triangles[lights[rng.random_u32_max(light_count)]];
             const u32 random_light_id = lights[rng.random_u32_max(light_count)];
             const RenderTriangle& light = triangles[random_light_id];
             const vec3 point_on_light = triangle_random_point(light.v0, light.v1, light.v2, 
@@ -98,6 +97,12 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
 
                 if (light_isect.hit() && light_isect.id == random_light_id) {
                     const vec3 brdf = tri.color();
+
+                    // This does correctly calculate the solid angle of the triangle,
+                    // but does not take into account how much of the triangle might
+                    // not be visible for the shading hemisphere. I think this
+                    // gets corrected though, due to the fact that those parts
+                    // of the triangle cannot get hit.
                     const f32 solid_angle_estimation = fabs(triangle_solid_angle(light.v0 - p, 
                                                                                  light.v1 - p, 
                                                                                  light.v2 - p));
@@ -198,59 +203,6 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
     }
 
     return emission;
-#if 0
-    vec3 acc = vec3(1.0f);
-
-    for (u32 depth = 0; ; depth++) {
-        if (depth == 6) {
-            return vec3::zero();
-        }
-
-        const auto isect = bvh_intersect_triangles(bvh, triangles, ray);
-
-        if (!isect.hit()) {
-            //Sample the skybox
-            f32 inclination, azimuth;
-            cartesian_to_spherical(ray.dir, &inclination, &azimuth);
-            // float to uint round down
-            const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
-            const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
-            const vec4 sky = skybox[vi * 4096 + ui];
-            return acc * vec3(sky.r, sky.g, sky.b);
-        }
-
-        const RenderTriangle& tri = triangles[isect.id];
-
-        switch (tri.material) {
-        case MATERIAL_DIFFUSE: {
-            const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
-            const vec3 p = ray.pos + isect.t * ray.dir;
-
-            const vec3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
-
-            vec3 t, b;
-            build_orthonormal_basis(n, &t, &b);
-            const vec3 scatter_direction = to_world_space(scatter_sample, n, t, b);
-
-            const vec3 brdf = tri.color();
-
-            acc *= brdf;
-
-            // Set the ray for the next loop iteration
-            ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
-        } break;
-        case MATERIAL_EMISSIVE: {
-            return acc * tri.light_intensity * tri.color();
-        } break;
-        case MATERIAL_MIRROR: {
-            const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
-            const vec3 p = ray.pos + isect.t * ray.dir;
-            const vec3 reflection = reflect(n, ray.dir);
-            ray = Ray(p + reflection * 0.0001f, reflection);
-        } break;
-        }
-    }
-#endif
 }
 
 __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, 

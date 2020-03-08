@@ -1,11 +1,18 @@
 #define PRIME0 100030001
 #define PRIME1 396191693
 
+struct StateCounter {
+    u32 extend_jobs;
+    u32 shade_jobs;
+};
+
 struct PathStates {
     Ray* ray;
 };
 
-__global__ void generate_primary_rays(Ray* rays, PointCamera camera, u32 width, u32 height) {
+__global__ void generate_primary_rays(StateCounter* counter, PathStates* states, 
+                                      PointCamera camera, u32 width, u32 height) 
+{
     const u32 x = blockIdx.x * blockDim.x + threadIdx.x;
     const u32 y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -23,15 +30,15 @@ __global__ void generate_primary_rays(Ray* rays, PointCamera camera, u32 width, 
 
     const Ray primary_ray = camera.create_ray(nx, ny);
 
-    rays[id] = primary_ray;
+    states->ray[id] = primary_ray;
+
+    atomicInc(&counter->extend_jobs);    
 }
 
-struct PathState {
-    Ray      ray;
-    RngXor32 rng;
-};
-
-__global__ void extend_rays(Ray* rays, BVHNode const * bvh, RenderTriangle const * triangles, u32 width, u32 height) {
+__global__ void extend_rays(StateCounter* counter, PathStates* states, 
+                            BVHNode const * bvh, RenderTriangle const * triangles, 
+                            u32 width, u32 height) 
+{
     const u32 x = blockIdx.x * blockDim.x + threadIdx.x;
     const u32 y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -41,10 +48,14 @@ __global__ void extend_rays(Ray* rays, BVHNode const * bvh, RenderTriangle const
 
     const u32 id = y * width + x;
     const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, rays[id]);
+
+    state.terminated = !isect.hit();
+
+    atomicInc(counters.shade_jobs);
 }
 
-__global__ void shade() {
-
+__global__ void shade(StateCounter* counter, PathStates* states) {
+    
 }
 
 

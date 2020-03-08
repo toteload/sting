@@ -43,6 +43,10 @@ union alignas(16) vec4 {
     struct { f32 r, g, b, a; };
     f32 fields[4];
 
+#ifdef __CUDACC__
+    __device__ explicit operator float4() const { return make_float4(x, y, z, w); }
+#endif
+
     __host__ __device__ vec4() { }
     __host__ __device__ vec4(f32 v) : x(v), y(v), z(v), w(v) { }
     __host__ __device__ vec4(f32 x, float y, float z, float w) : x(x), y(y), z(z), w(w) { }
@@ -186,6 +190,18 @@ vec3 sample_cosine_weighted_hemisphere(f32 r1, f32 r2) {
     const f32 x = s * cosf(theta);
     const f32 z = s * sinf(theta);
     return vec3(x, sqrtf(1.0f - r1), z);
+}
+
+__device__ inline
+f32 balance_heuristic(i32 nf, f32 f_pdf, i32 ng, f32 g_pdf) {
+    return (nf * f_pdf) / (nf * f_pdf + ng * g_pdf);
+}
+
+__device__ inline
+f32 power_heuristic(i32 nf, f32 f_pdf, i32 ng, f32 g_pdf) {
+    const f32 f = nf * f_pdf;
+    const f32 g = ng * g_pdf;
+    return (f * f) / (f * f + g * g);
 }
 
 // vec3 functions
