@@ -4,8 +4,10 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <GL/gl.h>
+#include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
+#include <cudaGL.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -25,17 +27,20 @@ const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;
 const uint32_t STING_VERSION_REVISION = 1;
 
-inline cudaError cuda_err_check(cudaError err, const char* file, int line, bool abort) {
-    (void)abort;
-    if (err != cudaSuccess) {
-        fprintf(stderr, "[cuda check failed] error code: %d, message: %s, file: %s, line: %d\n",
-                err, cudaGetErrorString(err), file, line);
+inline CUresult cuda_err_check(CUresult err, const char* file, int line) {
+    if (err != CUDA_SUCCESS) {
+        const char* cu_err_name;
+        const char* cu_err_string;
+        cuGetErrorName(err, &cu_err_name);
+        cuGetErrorString(err, &cu_err_string);
+        fprintf(stderr, "[cuda check failed] error code: %d, name: %s, message: %s, file: %s, line: %d\n",
+                err, cu_err_name, cu_err_string, file, line);
     }
 
     return err;
 }
 
-#define CUDA_CHECK(...) cuda_err_check(__VA_ARGS__, __FILE__, __LINE__, false)
+#define CUDA_CHECK(...) cuda_err_check(__VA_ARGS__, __FILE__, __LINE__)
 
 const u32 SCREEN_WIDTH  = 960;
 const u32 SCREEN_HEIGHT = 540;
@@ -56,18 +61,6 @@ struct Keymap {
         return map;
     }
 };
-
-void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, vec4 const * skybox,
-            vec4* buffer, u32 width, u32 height, u32 framenum);
-void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
-                   vec4* buffer, u32 width, u32 height, u32 framenum);
-void render_buffer_to_screen(cudaArray_const_t array, vec4* screen_buffer, uint32_t width, uint32_t height);
-void accumulate(vec4* frame_buffer, vec4* accumulator, vec4* screen_buffer, u32 width, u32 height, u32 acc_frame);
-
-void render_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
-                u32 const * lights, u32 light_count,
-                PointCamera camera, vec4 const * skybox,
-                vec4* buffer, u32 width, u32 height, u32 framenum);
 
 #if 1
 std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, vec3 pos) {
@@ -215,6 +208,26 @@ int main(int argc, char** args) {
     // enable/disable vsync
     SDL_GL_SetSwapInterval(0);
 
+    // --------------------------------------------------------------------- //
+
+    CUDA_CHECK(cuInit(0));
+
+    CUdevice device;
+    CUcontext context;
+    CUDA_CHECK(cuDeviceGet(&device, 0));
+    CUDA_CHECK(cuCtxCreate(&context, 0, device));
+
+    CUmodule fillimage;
+    CUDA_CHECK(cuModuleLoad(&fillimage, "fillimage.ptx"));
+
+    CUfunction render_nee, accumulate, blit_to_screen;
+    CUDA_CHECK(cuModuleGetFunction(&render_nee, fillimage, "nee_test"));
+    CUDA_CHECK(cuModuleGetFunction(&accumulate, fillimage, "accumulate_pass"));
+    CUDA_CHECK(cuModuleGetFunction(&blit_to_screen, fillimage, "blit_to_screen"));
+
+    CUsurfref screen_surface;
+    cuModuleGetSurfRef(&screen_surface, fillimage, "screen_surface");
+
     // CUDA/OpenGL interop setup
     // --------------------------------------------------------------------- //
     GLuint gl_frame_buffer, gl_render_buffer;
@@ -223,22 +236,21 @@ int main(int argc, char** args) {
     glNamedFramebufferRenderbuffer(gl_frame_buffer, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, gl_render_buffer);
     glNamedRenderbufferStorage(gl_render_buffer, GL_RGBA32F, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    cudaGraphicsResource* graphics_resource;
-    cudaGraphicsGLRegisterImage(&graphics_resource,
-                                gl_render_buffer, GL_RENDERBUFFER, 
-                                cudaGraphicsRegisterFlagsSurfaceLoadStore | cudaGraphicsRegisterFlagsWriteDiscard);
-    cudaGraphicsMapResources(1, &graphics_resource);
+    CUgraphicsResource graphics_resource;
+    cuGraphicsGLRegisterImage(&graphics_resource, gl_render_buffer, GL_RENDERBUFFER, 
+                              CU_GRAPHICS_REGISTER_FLAGS_SURFACE_LDST | CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+    cuGraphicsMapResources(1, &graphics_resource, 0);
 
-    cudaArray* screen_array;
-    cudaGraphicsSubResourceGetMappedArray(&screen_array, graphics_resource, 0, 0);
-    cudaGraphicsUnmapResources(1, &graphics_resource);
+    CUarray screen_array;
+    cuGraphicsSubResourceGetMappedArray(&screen_array, graphics_resource, 0, 0);
+    cuGraphicsUnmapResources(1, &graphics_resource, 0);
 
-    // Allocate the buffers
-    vec4* screen_buffer, *frame_buffer, *accumulator, *normal_buffer;
-    cudaMalloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
-    cudaMalloc(&frame_buffer,  SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
-    cudaMalloc(&accumulator,   SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
-    cudaMalloc(&normal_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+    cuSurfRefSetArray(screen_surface, screen_array, 0);
+
+    CUdeviceptr screen_buffer, frame_buffer, accumulator;
+    cuMemAlloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+    cuMemAlloc(&frame_buffer,  SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+    cuMemAlloc(&accumulator,   SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
 
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
@@ -360,18 +372,14 @@ int main(int argc, char** args) {
     printf("Created %llu bvh nodes...\n", bvh.size());
     //verify_bvh(bvh.data(), bvh.size(), triangles.size());
 
-    RenderTriangle* gpu_triangles;
-    CUDA_CHECK(cudaMalloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
+    CUdeviceptr gpu_triangles, gpu_bvh, gpu_lights;
+    cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle));
+    cuMemAlloc(&gpu_bvh, bvh.size() * sizeof(BVHNode));
+    cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
 
-    BVHNode* gpu_bvh;
-    CUDA_CHECK(cudaMalloc(&gpu_bvh, bvh.size() * sizeof(BVHNode)));
-
-    u32* gpu_lights;
-    CUDA_CHECK(cudaMalloc(&gpu_lights, lights.size() * sizeof(u32)));
-
-    CUDA_CHECK(cudaMemcpy(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(gpu_lights, lights.data(), lights.size() * sizeof(u32), cudaMemcpyHostToDevice));
+    cuMemcpyHtoD(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle));
+    cuMemcpyHtoD(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode));
+    cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
 
     // Skybox loading
     // --------------------------------------------------------------------- //
@@ -384,9 +392,6 @@ int main(int argc, char** args) {
 
     printf("Loaded skybox texture, width: %d, height: %d\n", hdr_width, hdr_height);
 
-    vec4* skybox_buffer;
-    CUDA_CHECK(cudaMalloc(&skybox_buffer, hdr_width * hdr_height * sizeof(vec4)));
-
     vec4* skybox = cast(vec4*, malloc(hdr_width * hdr_height * sizeof(vec4)));
     for (u32 i = 0; i < hdr_width * hdr_height; i++) {
         skybox[i] = vec4(skybox_image[i * 4 + 0] / 255.0f,
@@ -395,7 +400,9 @@ int main(int argc, char** args) {
                          1.0f);
     }
 
-    CUDA_CHECK(cudaMemcpy(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(vec4), cudaMemcpyHostToDevice));
+    CUdeviceptr skybox_buffer;
+    cuMemAlloc(&skybox_buffer, hdr_width * hdr_height * sizeof(vec4));
+    cuMemcpyHtoD(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(vec4));
 
     free(skybox);
     stbi_image_free(skybox_image);
@@ -486,32 +493,26 @@ int main(int argc, char** args) {
 
         camera.update_uvw();
 
-        switch (rendermethod) {
-        case 0: { 
-            render(gpu_bvh, gpu_triangles, camera, skybox_buffer, 
-                   frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
-        } break;
-        case 1: {
-            render_nee(gpu_bvh, gpu_triangles, gpu_lights, lights.size(), camera, skybox_buffer,
-                       frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
-        } break;
-        }
+        const u32 block_x = 16, block_y = 16;
+        const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
+        u32 light_count = lights.size();
+        u32 width = SCREEN_WIDTH, height = SCREEN_HEIGHT;
+        void* render_params[] = {
+            &gpu_bvh, &gpu_triangles, &gpu_lights, &light_count, &camera,
+            &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
+        };
+        cuLaunchKernel(render_nee, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
 
-#if 0
-#if 1
-        render(gpu_bvh, gpu_triangles, camera, skybox_buffer, 
-               frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
-#else
-        render_nee(gpu_bvh, gpu_triangles, gpu_lights, lights.size(), camera, skybox_buffer,
-                   frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, cast(u32, frame_count));
-#endif
-#endif
-        if (accumulate_toggle) {
-            accumulate(frame_buffer, accumulator, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT, acc_frame);
-            render_buffer_to_screen(screen_array, screen_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
-        } else {
-            render_buffer_to_screen(screen_array, frame_buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
-        }
+        void* accumulate_params[] = {
+            &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
+        };
+        cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
+
+        void* blit_params[] = {
+            &screen_buffer, &width, &height,
+        };
+        cuLaunchKernel(blit_to_screen, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, blit_params, NULL);
+
 
         glBlitNamedFramebuffer(gl_frame_buffer, 
                                0, 0, 0, 
@@ -521,11 +522,15 @@ int main(int argc, char** args) {
 
         SDL_GL_SwapWindow(window);
 
+        cuCtxSynchronize();
+
         frame_count++;
         acc_frame++;
     }
 
-    cudaGraphicsUnregisterResource(graphics_resource);
+    cuGraphicsUnregisterResource(graphics_resource);
+    cuCtxDestroy(context);
+
     glDeleteRenderbuffers(1, &gl_render_buffer);
     glDeleteFramebuffers(1, &gl_frame_buffer);
 

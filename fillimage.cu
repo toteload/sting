@@ -47,7 +47,7 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
     vec3 throughput = vec3(1.0f, 1.0f, 1.0f);
     bool allow_emissive = true;
 
-    for (u32 depth = 0; depth < 4; depth++) {
+    for (u32 depth = 0; depth < 2; depth++) {
         const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
 
         if (!isect.hit()) {
@@ -60,7 +60,6 @@ __device__ vec3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triang
             const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
             const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
             const vec4 sky = skybox[vi * 4096 + ui];
-            break;
             emission += throughput * vec3(sky.r, sky.g, sky.b);
             break;
         }
@@ -264,6 +263,7 @@ __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const *
     }
 }
 
+extern "C"
 __global__ void accumulate_pass(vec4* frame_buffer, vec4* accumulator, vec4* screen_buffer, 
                                 u32 width, u32 height, u32 acc_frame) 
 {
@@ -311,6 +311,7 @@ __global__ void intersect_test(BVHNode const * bvh, RenderTriangle const * trian
     }
 }
 
+extern "C"
 __global__ void nee_test(BVHNode const * bvh, RenderTriangle const * triangles, 
                          u32 const * lights, u32 light_count,
                          PointCamera camera, vec4 const * skybox,
@@ -364,6 +365,7 @@ __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, 
     buffer[id] = vec4(c, 1.0f);
 }
 
+extern "C"
 __global__ void blit_to_screen(vec4* buffer, uint32_t width, uint32_t height) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -378,6 +380,7 @@ __global__ void blit_to_screen(vec4* buffer, uint32_t width, uint32_t height) {
 }
 
 // ----------------------------------------------------------------------------
+#if 0
 void accumulate(vec4* frame_buffer, vec4* accumulator, vec4* screen_buffer, u32 width, u32 height, u32 acc_frame) {
     dim3 threads = dim3(16, 16, 1);
     dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
@@ -422,3 +425,4 @@ void render_buffer_to_screen(cudaArray_const_t array, vec4* screen_buffer, uint3
     // Need to synchronize here otherwise it is very choppy
     cudaDeviceSynchronize();
 }
+#endif
