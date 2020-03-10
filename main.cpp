@@ -166,8 +166,14 @@ bool verify_bvh(BVHNode const * bvh, u32 bvh_size, u32 prim_count) {
     return found_all_prims;
 }
 
+template<typename T>
+void unused(const T& x) {
+    (void)x;
+}
+
 int main(int argc, char** args) {
-    UNUSED(argc); UNUSED(args);
+    //UNUSED(argc); UNUSED(args);
+    unused(argc); unused(args);
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
         return 1;
@@ -530,6 +536,13 @@ int main(int argc, char** args) {
 
     return 0;
 }
+
+
+
+
+
+
+
 
 // The code below is another way of achieving CUDA/OpenGL interop, which uses
 // OpenGL extensions of a lower OpenGL version. The above version is a little

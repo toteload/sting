@@ -7,7 +7,6 @@ stuff with normals:
     and barycentric coordinates orientation. Make this consistent in the code.
     [ ] normal_lerp, RenderTriangle constructor, maybe more
 [ ] calculate interpolated normals from triangle soup
-[ ] multiple importance sampling
 
 [x] next event estimation
     [x] need a list of all the lights
@@ -32,20 +31,6 @@ sting 0.2.1
     functions to actually use these if necessary, intersect codes don't need
     to use them
 
-Stuff to change about the code
--------------------------------------------------------------------------------
-Currently using a `surface` in the CUDA code to write to the screen via a
-cudaArray, but this is not really necessary and you can just get a device
-pointer instead of a cudaArray which you should be able to also write to. I
-found online that cudaArrays are mapped in memory like texures, so optimized
-for 2D local access with a curve or something like that. However, this is
-completely unnecessary since we just run the code over the entire buffer and
-don't need 2D local access, so storing it like 2D access doesn't provide any
-benefit on that front. And removing the surface would make the code a little
-bit cleaner :) maybe faster. Probably not, but also not slower probably. Would
-have to try.
-
-
 sting 0.3
 -------------------------------------------------------------------------------
 Adding the wavefront architecture!
@@ -61,8 +46,12 @@ The BVH optimization update!
 
 Just stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
+[ ] use CUDA driver API instead. Is more low level and gives more control (do
+    you really need this tho?). Another nice option this brings is hot reloading
+    of CUDA code. This repository makes use of this https://github.com/nvpro-samples/gl_cuda_interop_pingpong_st
 [ ] normal packing and unpacking
-[ ] nested instancing
+[ ] multiple importance sampling
+[ ] nested instancing (could be cool :D)
 [ ] debug statistics: framerate, ms per frame, maybe frame time histogram
 [ ] add functionality to have the render buffer size and the screen size
     to be different dimensions

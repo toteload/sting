@@ -331,9 +331,7 @@ f32 triangle_solid_angle(const vec3& a, const vec3& b, const vec3& c) {
     const f32 db = b.length();
     const f32 dc = c.length();
 
-    return 2.0f * atan2f(dot(a, cross(b, c)), 
-                         //da * (db * (dc * (1 + dot(a, b)) + dot(a, c)) + dot(b, c)));
-                         da*db*dc + dot(a, b)*dc + dot(a, c)*db + dot(b, c)*da);
+    return 2.0f * atan2f(dot(a, cross(b, c)), da*db*dc + dot(a, b)*dc + dot(a, c)*db + dot(b, c)*da);
 }
 
 __host__ __device__ inline
