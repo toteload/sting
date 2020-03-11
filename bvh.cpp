@@ -257,7 +257,7 @@ __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh,
                                                            Ray ray) 
 {
     // Create a stack and initialize it with the root node
-    Stack<u32, 32> stack({ 0 });
+    Stack<u32, 16> stack({ 0 });
 
     const vec3 ray_inv_dir = ray.dir.inverse();
 

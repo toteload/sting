@@ -1,7 +1,8 @@
 @echo off
 
 :: build the CUDA files
-nvcc -O3 -ptx -Xcompiler "/MD /Oi /fp:fast" -c fillimage.cu
+::nvcc -O3 -ptx -Xcompiler "/MD /Oi /fp:fast" -c fillimage.cu
+nvcc -O3 -ptx -lineinfo -Xcompiler "/MD /Oi /O2 /fp:fast" -c wavefront.cu
 
 ::python genglextensions.py
 

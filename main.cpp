@@ -22,6 +22,7 @@
 #include "fast_obj.h"
 #include "stb_image.h"
 #include "meshloader.h"
+#include "wavefront.h"
 
 const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;
@@ -217,13 +218,19 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuDeviceGet(&device, 0));
     CUDA_CHECK(cuCtxCreate(&context, 0, device));
 
-    CUmodule fillimage;
+    CUmodule fillimage, wavefrontptx;
     CUDA_CHECK(cuModuleLoad(&fillimage, "fillimage.ptx"));
+    CUDA_CHECK(cuModuleLoad(&wavefrontptx, "wavefront.ptx"));
 
     CUfunction render_nee, accumulate, blit_to_screen;
     CUDA_CHECK(cuModuleGetFunction(&render_nee, fillimage, "nee_test"));
     CUDA_CHECK(cuModuleGetFunction(&accumulate, fillimage, "accumulate_pass"));
     CUDA_CHECK(cuModuleGetFunction(&blit_to_screen, fillimage, "blit_to_screen"));
+
+    CUfunction generate_primary_rays, extend_rays, shade;
+    CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays, wavefrontptx, "generate_primary_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&extend_rays, wavefrontptx, "extend_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&shade, wavefrontptx, "shade"));
 
     CUsurfref screen_surface;
     cuModuleGetSurfRef(&screen_surface, fillimage, "screen_surface");
@@ -251,6 +258,13 @@ int main(int argc, char** args) {
     cuMemAlloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
     cuMemAlloc(&frame_buffer,  SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
     cuMemAlloc(&accumulator,   SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+
+    // Wavefront state
+    // --------------------------------------------------------------------- //
+    CUdeviceptr wavefront_state, pathstate_buffer[2];
+    CUDA_CHECK(cuMemAlloc(&wavefront_state, sizeof(wavefront::State)));
+    CUDA_CHECK(cuMemAlloc(&pathstate_buffer[0], SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(wavefront::PathState)));
+    CUDA_CHECK(cuMemAlloc(&pathstate_buffer[1], SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(wavefront::PathState)));
 
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
@@ -493,6 +507,7 @@ int main(int argc, char** args) {
 
         camera.update_uvw();
 
+#if 0
         const u32 block_x = 16, block_y = 16;
         const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
         u32 light_count = lights.size();
@@ -512,7 +527,82 @@ int main(int argc, char** args) {
             &screen_buffer, &width, &height,
         };
         cuLaunchKernel(blit_to_screen, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, blit_params, NULL);
+#else
+        wavefront::State wavefront_state_values;
+        wavefront_state_values.job_count[0] = 0;
+        wavefront_state_values.job_count[1] = 0;
+        wavefront_state_values.states[0] = cast(wavefront::PathState*, pathstate_buffer[0]);
+        wavefront_state_values.states[1] = cast(wavefront::PathState*, pathstate_buffer[1]);
 
+        cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State));
+
+        const u32 block_x = 128;
+        u32 grid_x = (SCREEN_WIDTH * SCREEN_HEIGHT + block_x - 1) / block_x;
+        u32 width = SCREEN_WIDTH, height = SCREEN_HEIGHT;
+
+        u32 current = 0;
+
+        {
+            void* generate_primary_rays_params[] = {
+                &wavefront_state, &current, &camera, &width, &height, &frame_count,
+            };
+            CUDA_CHECK(cuLaunchKernel(generate_primary_rays, 
+                                      grid_x, 1, 1, 
+                                      block_x, 1, 1, 
+                                      0, 0, 
+                                      generate_primary_rays_params, NULL));
+        }
+
+        for (u32 i = 0; i < 4; i++) {
+            cuMemcpyDtoH(&wavefront_state_values, wavefront_state, sizeof(wavefront::State));
+
+            const u32 active_jobs = wavefront_state_values.job_count[current];
+            printf("%d active pixels...\n", active_jobs);
+
+            wavefront_state_values.job_count[current ^ 1] = 0;
+            cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State));
+
+            //grid_x = (active_jobs + block_x - 1) / block_x;
+
+            void* extend_rays_params[] = {
+                &wavefront_state, &current, &gpu_bvh, &gpu_triangles,
+            };
+            CUDA_CHECK(cuLaunchKernel(extend_rays, 
+                                      grid_x, 1, 1, 
+                                      block_x, 1, 1, 
+                                      0, 0, 
+                                      extend_rays_params, NULL));
+
+            void* shade_params[] = {
+                &wavefront_state, &current, &gpu_triangles, &frame_buffer,
+            };
+            CUDA_CHECK(cuLaunchKernel(shade, 
+                                      grid_x, 1, 1, 
+                                      block_x, 1, 1, 
+                                      0, 0, 
+                                      shade_params, NULL));
+
+            {
+                const u32 block_x = 16, block_y = 16;
+                const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
+                void* accumulate_params[] = {
+                    &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
+                };
+                cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
+            }
+
+            current ^= 1;
+        }
+
+        {
+            const u32 block_x = 16, block_y = 16;
+            const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
+            void* blit_params[] = {
+                &screen_buffer, &width, &height,
+            };
+            CUDA_CHECK(cuLaunchKernel(blit_to_screen, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, blit_params, NULL));
+        }
+#endif
 
         glBlitNamedFramebuffer(gl_frame_buffer, 
                                0, 0, 0, 
