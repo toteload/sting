@@ -34,21 +34,20 @@ sting 0.2.1
 sting 0.3
 -------------------------------------------------------------------------------
 Adding the wavefront architecture!
+[ ] wavefront with NEE
 
 sting 0.4
 -------------------------------------------------------------------------------
 The BVH optimization update!
 
-[ ] top level BVH
 [ ] MBVH instead of BVH
+[ ] top level BVH
 
 
 
 Just stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
-[ ] use CUDA driver API instead. Is more low level and gives more control (do
-    you really need this tho?). Another nice option this brings is hot reloading
-    of CUDA code. This repository makes use of this https://github.com/nvpro-samples/gl_cuda_interop_pingpong_st
+[ ] CUDA hot reloading
 [ ] normal packing and unpacking
 [ ] multiple importance sampling
 [ ] nested instancing (could be cool :D)

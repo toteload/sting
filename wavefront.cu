@@ -14,7 +14,7 @@
 // the path state array. The benefit of this is that you use less memory
 // and you don't have to immediately write the result away when a path
 // finishes. The downside is that memory access is no longer linear.
-// At this point I am not sure which one would be better.
+// Currently, I am not sure which one would be better.
 
 extern "C"
 __global__ void generate_primary_rays(wavefront::State* state, u32 current, 
@@ -83,7 +83,8 @@ __global__ void shade(wavefront::State* state, u32 current,
     const RenderTriangle& tri = triangles[pathstate.triangle_id];
 
     if (!pathstate.hit()) {
-        buffer[pathstate.pixel_index] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        //buffer[pathstate.pixel_index] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        buffer[pathstate.pixel_index] = vec4(pathstate.throughput, 1.0f);
         return;
     }
 
@@ -98,6 +99,9 @@ __global__ void shade(wavefront::State* state, u32 current,
 
         const vec3 p = pathstate.ray_pos + pathstate.t * pathstate.ray_dir;
         const Ray extend_ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
+
+        //buffer[pathstate.pixel_index] = vec4(scatter_direction, 1.0f);
+        //return;
 
         const u32 nextid = atomicAdd(&state->job_count[next], 1);
 

@@ -1,8 +1,8 @@
-#include "ext/SDL2-2.0.10/include/SDL.h"
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #define NOMINMAX
 #include <Windows.h>
+#include "SDL.h"
 #include <GL/gl.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -14,7 +14,7 @@
 
 #include "common.h"
 #include "glext.h"
-#include "load_gl_extensions.h"
+#include "gl_extension_loader.cpp"
 #include "stingmath.h"
 #include "camera.h"
 #include "bvh.h"
@@ -23,6 +23,12 @@
 #include "stb_image.h"
 #include "meshloader.h"
 #include "wavefront.h"
+
+#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "gl_extension_loader.h"
+#include "imgui/imconfig.h"
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_sdl.h"
+#include "imgui/imgui_impl_opengl3.h"
 
 const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;
@@ -43,8 +49,8 @@ inline CUresult cuda_err_check(CUresult err, const char* file, int line) {
 
 #define CUDA_CHECK(...) cuda_err_check(__VA_ARGS__, __FILE__, __LINE__)
 
-const u32 SCREEN_WIDTH  = 960;
-const u32 SCREEN_HEIGHT = 540;
+const u32 SCREEN_WIDTH  = 1400;
+const u32 SCREEN_HEIGHT = 800;
 
 struct Keymap {
     u32 w : 1;
@@ -173,8 +179,8 @@ int main(int argc, char** args) {
         return 1;
     }
 
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+    //SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    //SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 
     // NOTE: when these are set it cannot find a suitable opengl context
     //SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 32);
@@ -222,8 +228,9 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuModuleLoad(&fillimage, "fillimage.ptx"));
     CUDA_CHECK(cuModuleLoad(&wavefrontptx, "wavefront.ptx"));
 
-    CUfunction render_nee, accumulate, blit_to_screen;
+    CUfunction render_bruteforce, render_nee, accumulate, blit_to_screen;
     CUDA_CHECK(cuModuleGetFunction(&render_nee, fillimage, "nee_test"));
+    CUDA_CHECK(cuModuleGetFunction(&render_bruteforce, fillimage, "test_001"));
     CUDA_CHECK(cuModuleGetFunction(&accumulate, fillimage, "accumulate_pass"));
     CUDA_CHECK(cuModuleGetFunction(&blit_to_screen, fillimage, "blit_to_screen"));
 
@@ -255,9 +262,9 @@ int main(int argc, char** args) {
     cuSurfRefSetArray(screen_surface, screen_array, 0);
 
     CUdeviceptr screen_buffer, frame_buffer, accumulator;
-    cuMemAlloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
-    cuMemAlloc(&frame_buffer,  SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
-    cuMemAlloc(&accumulator,   SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4));
+    CUDA_CHECK(cuMemAlloc(&screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
+    CUDA_CHECK(cuMemAlloc(&frame_buffer,  SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
+    CUDA_CHECK(cuMemAlloc(&accumulator,   SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
 
     // Wavefront state
     // --------------------------------------------------------------------- //
@@ -273,7 +280,7 @@ int main(int argc, char** args) {
     
     std::vector<RenderTriangle> triangles;
 
-#if 1
+#if 0
     auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f, vec3(0.0f, 0.0f, 0.0f));
     for (u32 i = 0; i < sphere_mesh.size(); i++) {
         sphere_mesh[i].material = MATERIAL_DIFFUSE;
@@ -287,7 +294,7 @@ int main(int argc, char** args) {
     triangles.insert(triangles.end(), spheremesh0.begin(), spheremesh0.end());
 #endif
 
-#if 1
+#if 0
     auto light0 = RenderTriangle(vec3(0.0f, 0.4f, 0.0f),
                                  vec3(0.3f, 0.4f, 0.0f),
                                  vec3(0.0f, 0.5f, 0.3f));
@@ -313,7 +320,7 @@ int main(int argc, char** args) {
     triangles.push_back(light2);
 #endif
 
-#if 0
+#if 1
     fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
@@ -351,7 +358,8 @@ int main(int argc, char** args) {
                 vertex_index++;
             }
             auto tri = RenderTriangle(vertices[0], vertices[1], vertices[2]);
-            tri.material = MATERIAL_MIRROR;
+            //tri.material = MATERIAL_MIRROR;
+            tri.material = MATERIAL_DIFFUSE;
             triangles.push_back(tri);
         }
     }
@@ -386,14 +394,14 @@ int main(int argc, char** args) {
     printf("Created %llu bvh nodes...\n", bvh.size());
     //verify_bvh(bvh.data(), bvh.size(), triangles.size());
 
-    CUdeviceptr gpu_triangles, gpu_bvh, gpu_lights;
-    cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle));
-    cuMemAlloc(&gpu_bvh, bvh.size() * sizeof(BVHNode));
-    cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
+    CUdeviceptr gpu_triangles, gpu_bvh;//, gpu_lights;
+    CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
+    CUDA_CHECK(cuMemAlloc(&gpu_bvh, bvh.size() * sizeof(BVHNode)));
+    //cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
 
-    cuMemcpyHtoD(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle));
-    cuMemcpyHtoD(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode));
-    cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode)));
+    //cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
 
     // Skybox loading
     // --------------------------------------------------------------------- //
@@ -415,8 +423,8 @@ int main(int argc, char** args) {
     }
 
     CUdeviceptr skybox_buffer;
-    cuMemAlloc(&skybox_buffer, hdr_width * hdr_height * sizeof(vec4));
-    cuMemcpyHtoD(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(vec4));
+    CUDA_CHECK(cuMemAlloc(&skybox_buffer, hdr_width * hdr_height * sizeof(vec4)));
+    CUDA_CHECK(cuMemcpyHtoD(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(vec4)));
 
     free(skybox);
     stbi_image_free(skybox_image);
@@ -432,7 +440,21 @@ int main(int argc, char** args) {
 
     Keymap keymap = Keymap::empty();
 
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    //SDL_SetRelativeMouseMode(SDL_TRUE);
+
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+    ImGuiIO& io = ImGui::GetIO();
+    
+    if (!ImGui_ImplSDL2_InitForOpenGL(window, gl_context)) {
+        printf("Failed to initiazlie ImGui for SDL...\n");
+        return 1;
+    }
+
+    if (!ImGui_ImplOpenGL3_Init(NULL)) {
+        printf("Failed to initialize ImGui for OpenGL...\n");
+        return 1; 
+    }
 
     uint64_t frame_count = 0;
     u32 acc_frame = 0;
@@ -442,6 +464,8 @@ int main(int argc, char** args) {
 
     u32 rendermethod = 0;
     u32 accumulate_toggle = 1;
+
+    bool show_demo = true;
 
     bool running = true;
     while (running) {
@@ -454,13 +478,19 @@ int main(int argc, char** args) {
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL2_ProcessEvent(&event);
+
             switch (event.type) {
             case SDL_QUIT: { running = 0; } break;
             case SDL_MOUSEMOTION: {
+                if (io.WantCaptureMouse) { break; }
+
                 mouse_x += event.motion.xrel;
                 mouse_y += event.motion.yrel;
             } break;
             case SDL_KEYDOWN: {
+                if (io.WantCaptureKeyboard) { break; }
+
                 switch (event.key.keysym.sym) {
                 case SDLK_ESCAPE: { running = false; } break;
                 case SDLK_w:      { keymap.w = 1; } break;
@@ -476,6 +506,8 @@ int main(int argc, char** args) {
                 }
             } break;
             case SDL_KEYUP: {
+                if (io.WantCaptureKeyboard) { break; }
+
                 switch (event.key.keysym.sym) {
                 case SDLK_w:     { keymap.w = 0; } break;
                 case SDLK_s:     { keymap.s = 0; } break;
@@ -512,11 +544,20 @@ int main(int argc, char** args) {
         const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
         u32 light_count = lights.size();
         u32 width = SCREEN_WIDTH, height = SCREEN_HEIGHT;
+
+#if 1
+        void* render_params[] = {
+            &gpu_bvh, &gpu_triangles, &camera,
+            &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
+        };
+        cuLaunchKernel(render_bruteforce, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
+#else
         void* render_params[] = {
             &gpu_bvh, &gpu_triangles, &gpu_lights, &light_count, &camera,
             &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
         };
         cuLaunchKernel(render_nee, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
+#endif
 
         void* accumulate_params[] = {
             &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
@@ -534,7 +575,8 @@ int main(int argc, char** args) {
         wavefront_state_values.states[0] = cast(wavefront::PathState*, pathstate_buffer[0]);
         wavefront_state_values.states[1] = cast(wavefront::PathState*, pathstate_buffer[1]);
 
-        cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State));
+        CUDA_CHECK(cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State)));
+        CUDA_CHECK(cuMemsetD8(frame_buffer, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
 
         const u32 block_x = 128;
         u32 grid_x = (SCREEN_WIDTH * SCREEN_HEIGHT + block_x - 1) / block_x;
@@ -557,12 +599,14 @@ int main(int argc, char** args) {
             cuMemcpyDtoH(&wavefront_state_values, wavefront_state, sizeof(wavefront::State));
 
             const u32 active_jobs = wavefront_state_values.job_count[current];
-            printf("%d active pixels...\n", active_jobs);
+            //printf("%d active pixels...\n", active_jobs);
+
+            if (active_jobs == 0) { break; }
 
             wavefront_state_values.job_count[current ^ 1] = 0;
             cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State));
 
-            //grid_x = (active_jobs + block_x - 1) / block_x;
+            grid_x = (active_jobs + block_x - 1) / block_x;
 
             void* extend_rays_params[] = {
                 &wavefront_state, &current, &gpu_bvh, &gpu_triangles,
@@ -582,17 +626,19 @@ int main(int argc, char** args) {
                                       0, 0, 
                                       shade_params, NULL));
 
-            {
-                const u32 block_x = 16, block_y = 16;
-                const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
-                void* accumulate_params[] = {
-                    &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
-                };
-                cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
-            }
-
             current ^= 1;
         }
+
+#if 1
+        {
+            const u32 block_x = 16, block_y = 16;
+            const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
+            void* accumulate_params[] = {
+                &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
+            };
+            cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
+        }
+#endif
 
         {
             const u32 block_x = 16, block_y = 16;
@@ -602,13 +648,23 @@ int main(int argc, char** args) {
             };
             CUDA_CHECK(cuLaunchKernel(blit_to_screen, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, blit_params, NULL));
         }
-#endif
 
-        glBlitNamedFramebuffer(gl_frame_buffer, 
-                               0, 0, 0, 
-                               SCREEN_WIDTH, SCREEN_HEIGHT, 0, 
-                               SCREEN_HEIGHT, SCREEN_WIDTH, 0, 
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+#endif
+        glBlitNamedFramebuffer(gl_frame_buffer, 0, 
+                               0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 
+                               0, SCREEN_HEIGHT, SCREEN_WIDTH, 0, 
                                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame(window);
+        ImGui::NewFrame();
+
+        ImGui::ShowDemoWindow(&show_demo);
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         SDL_GL_SwapWindow(window);
 
@@ -617,6 +673,10 @@ int main(int argc, char** args) {
         frame_count++;
         acc_frame++;
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
 
     cuGraphicsUnregisterResource(graphics_resource);
     cuCtxDestroy(context);

@@ -25,7 +25,6 @@ struct alignas(16) BVHNode {
     BVHNode() { }
 
     __device__ bool is_leaf() const { return count > 0; }
-    bool intersect(vec3 ray_pos, vec3 ray_inv_dir) const;
 };
 
 // Just some sanity checking
@@ -34,6 +33,26 @@ static_assert(offsetof(BVHNode, count) == 12, "");
 static_assert(offsetof(BVHNode, bmax) == 16, "");
 static_assert(offsetof(BVHNode, left_first) == 28, "");
 static_assert(sizeof(BVHNode) == 32, "");
+
+struct alignas(16) MBVHNode {
+    AABB4 aabbs;
+    u32 count[4];
+    u32 left_first[4];
+
+    void set_aabb(const AABB& bounds, u32 index) {
+        aabbs.bminx[index] = bounds.bmin.x;
+        aabbs.bminy[index] = bounds.bmin.y;
+        aabbs.bminz[index] = bounds.bmin.z;
+
+        aabbs.bmaxx[index] = bounds.bmax.x;
+        aabbs.bmaxy[index] = bounds.bmax.y;
+        aabbs.bmaxz[index] = bounds.bmax.z;
+    }
+
+    bool is_leaf(u32 index) const {
+        return count[index] == 0;
+    }
+};
 
 enum RenderMaterial : u32 {
     MATERIAL_DIFFUSE = 1,
@@ -107,6 +126,99 @@ struct RenderInstance {
 // This will reorder the `triangles` array
 std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, uint32_t triangle_count);
 
+void build_mbvh(MBVHNode& mnode, std::vector<MBVHNode>& nodes, BVHNode const * bvh, u32 current_node) {
+    const BVHNode& current = bvh[current_node];
+
+    const BVHNode& left  = bvh[current.left_first];
+    const BVHNode& right = bvh[current.left_first+1];
+
+    mnode.set_aabb(left.bounds, 0);
+    mnode.set_aabb(right.bounds, 1);
+    mnode.set_aabb(AABB::empty(), 2);
+    mnode.set_aabb(AABB::empty(), 3);
+
+    mnode.count[0] = left.count;
+    mnode.count[1] = right.count;
+
+    const u32 child_index = nodes.size();
+    const bool has_left_child = !left.is_leaf();
+
+    u32 node_offset = child_index;
+
+    if (!left.is_leaf()) {
+        nodes.push_back({});
+        mnode.left_first[0] = node_offset++;
+    } else {
+        mnode.left_first[0] = left.left_first;
+    }
+
+    if (!right.is_leaf()) {
+        nodes.push_back({});
+        mnode.left_first[1] = node_offset++;
+    } else {
+        mnode.left_first[1] = right.left_first;
+    }
+
+    if (!left.is_leaf()) {
+        build_mbvh(nodes[child_index], nodes, bvh, current.left_first);
+    }
+
+    if (!right.is_leaf()) {
+        build_mbvh(nodes[child_index + ((has_left_child) ? 1 : 0)], nodes, bvh, current.left_first+1);
+    }
+}
+
+template<typename T, u32 Capacity>
+struct Stack {
+    T data[Capacity];
+    u32 top;
+
+    Stack() : top(0) { }
+    __device__ Stack(std::initializer_list<T> l) : top(l.size()) {
+        for (u32 i = 0; i < l.size(); i++) {
+            data[i] = l.begin()[i];
+        }
+    }
+
+    __device__ bool is_empty() const { return top == 0; }
+    u32 capacity() const { return Capacity; }
+    u32 size() const { return top; }
+    __device__ void push(T v) { data[top++] = v; }
+    __device__ T pop() { return data[--top]; }
+    T peek() const { return data[top-1]; }
+};
+
+void collapse_mbvh(std::vector<MBVHNode>& mbvh) {
+    Stack<u32, 128> stack({ 0 });
+
+    while (!stack.is_empty()) {
+        MBVHNode& node = mbvh[stack.pop()];
+        if (!node.is_leaf(0)) {
+            stack.push(node.left_first[0]);
+        } else {
+            
+        }
+
+        if (!node.is_leaf(1)) {
+            stack.push(node.left_first[1]);
+        }
+
+
+    }
+}
+
+std::vector<MBVHNode> build_mbvh_from_bvh(BVHNode const * bvh, u32 bvh_node_count) {
+    std::vector<MBVHNode> mbvh;
+    mbvh.reserve(bvh_node_count);
+
+    mbvh.push_back({});
+    MBVHNode& root = mbvh.back();
+    
+    build_mbvh(root, mbvh, bvh, 0);
+
+    return mbvh;
+}
+
 #if 1
 
 struct Scene {
@@ -158,14 +270,14 @@ struct alignas(16) BVHTriangleIntersection {
     u32 id; // the most significant bit will be set if there is no hit
     f32 t, u, v;
 
-    __device__ bool hit() const { return (~id) & (cast(u32, 1) << 31); }
+    __device__ bool hit() const { return id == UINT32_MAX; }
 };
 
 struct BVHInstanceIntersection {
     u32 instance_id; u32 triangle_id;
     f32 t, u, v;
 
-    __device__ bool hit() const { return (~instance_id) & (cast(u32, 1) << 31); }
+    __device__ bool hit() const { return instance_id == UINT32_MAX; }
 };
 
 __device__ BVHInstanceIntersection bvh_intersect_instance_triangles(BVHNode const * instance_bvh, 

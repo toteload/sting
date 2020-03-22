@@ -14,8 +14,8 @@ union vec3 {
     f32 fields[3];
 
     __host__ __device__ vec3() { }
-    __host__ __device__ vec3(f32 a): x(a), y(a), z(a) { }
-    __host__ __device__ vec3(f32 x, float y, float z): x(x), y(y), z(z) { }
+    __host__ __device__ explicit vec3(f32 a): x(a), y(a), z(a) { }
+    __host__ __device__ vec3(f32 x, f32 y, f32 z): x(x), y(y), z(z) { }
     __host__ __device__ vec3(const vec4& v);
 
     __host__ __device__ inline f32  length_squared() const;
@@ -24,18 +24,18 @@ union vec3 {
     __host__ __device__ inline vec3 inverse() const;
     __host__ __device__ inline f32  operator[](size_t i) const;
 
-    __host__ __device__ inline static vec3 zero();
+    __host__ __device__ inline static vec3 min(const vec3& a, const vec3& b);
+    __host__ __device__ inline static vec3 max(const vec3& a, const vec3& b);
 };
 
-         __device__ inline vec3 min_elements(vec3 a, vec3 b);
-         __device__ inline vec3 max_elements(vec3 a, vec3 b);
-__host__ __device__ inline f32  dot(vec3 a, vec3 b);
-__host__ __device__ inline vec3 cross(vec3 a, vec3 b);
-__host__ __device__ inline vec3 operator*(f32 s, vec3 v);
-__host__ __device__ inline vec3 operator*(vec3 a, vec3 b);
+__host__ __device__ inline f32  dot(const vec3& a, const vec3& b);
+__host__ __device__ inline vec3 cross(const vec3& a, const vec3& b);
+__host__ __device__ inline vec3 operator*(f32 s, const vec3& v);
+__host__ __device__ inline vec3 operator*(const vec3& v, f32 s);
+__host__ __device__ inline vec3 operator*(const vec3& a, const vec3& b);
 __host__ __device__ inline void operator*=(vec3& a, const vec3& b);
-__host__ __device__ inline vec3 operator+(vec3 a, vec3 b);
-__host__ __device__ inline vec3 operator-(vec3 a, vec3 b);
+__host__ __device__ inline vec3 operator+(const vec3& a, const vec3& b);
+__host__ __device__ inline vec3 operator-(const vec3& a, const vec3& b);
 __host__ __device__ inline void operator+=(vec3& a, const vec3& b);
 
 union alignas(16) vec4 {
@@ -43,20 +43,24 @@ union alignas(16) vec4 {
     struct { f32 r, g, b, a; };
     f32 fields[4];
 
-#ifdef __CUDACC__
-    __device__ explicit operator float4() const { return make_float4(x, y, z, w); }
-#endif
-
     __host__ __device__ vec4() { }
-    __host__ __device__ vec4(f32 v) : x(v), y(v), z(v), w(v) { }
-    __host__ __device__ vec4(f32 x, float y, float z, float w) : x(x), y(y), z(z), w(w) { }
+    __host__ __device__ explicit vec4(f32 v) : x(v), y(v), z(v), w(v) { }
+    __host__ __device__ vec4(f32 x, f32 y, f32 z, f32 w) : x(x), y(y), z(z), w(w) { }
     __host__ __device__ vec4(const vec3& v, f32 w) : x(v.x), y(v.y), z(v.z), w(w) { }
+
+    __host__ __device__ inline f32& operator[](size_t i) const;
+
+    __host__ __device__ inline static vec4 min(const vec4& a, const vec4& b);
+    __host__ __device__ inline static vec4 max(const vec4& a, const vec4& b);
 };
 
-__device__ inline vec4 operator*(f32 s, vec4 v);
-__device__ inline vec4 operator+(const vec4&a, const vec4& b);
+__device__ inline vec4 operator*(f32 s, const vec4& v);
+__device__ inline vec4 operator-(const vec4& a, const vec4& b);
+__device__ inline vec4 operator+(const vec4& a, const vec4& b);
 __device__ inline void operator+=(vec4& a, const vec4& b);
 __device__ inline vec4 operator/(const vec4& a, f32 s);
+__device__ inline u32 greater_than(const vec4& a, const vec4& b);
+__device__ inline u32 greater_equals(const vec4& a, const vec4& b);
 
 struct alignas(16) Ray {
     vec3 pos; f32 tmin;
@@ -96,13 +100,13 @@ struct RngXor32 {
 
 template<typename T>
 __host__ __device__ 
-const T& min(const T& a, const T& b) {
+T min(const T& a, const T& b) {
     return (a < b) ? a : b;
 }
 
 template<typename T>
 __host__ __device__ 
-const T& max(const T& a, const T& b) {
+T max(const T& a, const T& b) {
     return (a > b) ? a : b;
 }
 
@@ -135,6 +139,34 @@ T max(std::initializer_list<T> l) {
 template<typename T>
 inline T clamp(const T& x, const T& a, const T& b) {
     return min(b, max(x, a));
+}
+
+union Float32 {
+    f32 f;
+    u32 u;
+
+    explicit Float32(f32 x) : f(x) { }
+    explicit Float32(u32 x) : u(x) { }
+
+    struct {
+        u32 mantissa : 23;
+        u32 exponent : 8;
+        u32 sign : 1;
+    };
+};
+
+inline u32 f32_to_bits(f32 x) {
+    return Float32(x).u;
+}
+
+inline f32 bits_to_f32(u32 x) {
+    return Float32(x).f;
+}
+
+// after calling this a will be min(a, b) and b max(a, b)
+template<typename T>
+void sort_compare(T& a, T& b) {
+    if (a > b) { std::swap(a, b); }
 }
 
 inline f32 degrees_to_radians(f32 d) {
@@ -214,39 +246,41 @@ __host__ __device__ inline vec3 vec3::normalize() const { const f32 l = length()
 __host__ __device__ inline vec3 vec3::inverse() const { return { 1.0f / x, 1.0f / y, 1.0f / z }; }
 __host__ __device__ inline f32  vec3::operator[](size_t i) const { return fields[i]; }
 
-__host__ __device__ inline vec3 vec3::zero() { return vec3(0.0f, 0.0f, 0.0f); }
-
 // For each element select the minimum of the two vectors
-__device__ inline
-vec3 min_elements(vec3 a, vec3 b) {
-    return { min(a.x, b.x), min(a.y, b.y), min(a.z, b.z) };
+__host__ __device__ inline
+vec3 vec3::min(const vec3& a, const vec3& b) {
+    return { ::min(a.x, b.x), ::min(a.y, b.y), ::min(a.z, b.z) };
 }
 
 // For each element select the maximum of the two vectors
-__device__ inline
-vec3 max_elements(vec3 a, vec3 b) {
-    return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
+__host__ __device__ inline
+vec3 vec3::max(const vec3& a, const vec3& b) {
+    return { ::max(a.x, b.x), ::max(a.y, b.y), ::max(a.z, b.z) };
 }
 
 __host__ __device__ inline
-f32 dot(vec3 a, vec3 b) {
+f32 dot(const vec3& a, const vec3& b) {
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
 __host__ __device__ inline 
-vec3 cross(vec3 a, vec3 b) {
+vec3 cross(const vec3& a, const vec3& b) {
     return { a.y*b.z - a.z*b.y,
              a.z*b.x - a.x*b.z,
              a.x*b.y - a.y*b.x, };
 }
 
 __host__ __device__ inline
-vec3 operator*(f32 s, vec3 v) {
+vec3 operator*(f32 s, const vec3& v) {
     return { s * v.x, s * v.y, s * v.z };
+}
+__host__ __device__ inline 
+vec3 operator*(const vec3& v, f32 s) {
+    return s * v;
 }
 
 __host__ __device__ inline
-vec3 operator*(vec3 a, vec3 b) {
+vec3 operator*(const vec3& a, const vec3& b) {
     return { a.x * b.x, a.y * b.y, a.z * b.z };
 }
 
@@ -256,12 +290,12 @@ void operator*=(vec3& a, const vec3& b) {
 }
 
 __host__ __device__ inline
-vec3 operator+(vec3 a, vec3 b) {
+vec3 operator+(const vec3& a, const vec3& b) {
     return { a.x+b.x, a.y+b.y, a.z+b.z };
 }
 
 __host__ __device__ inline 
-vec3 operator-(vec3 a, vec3 b) {
+vec3 operator-(const vec3& a, const vec3& b) {
     return { a.x-b.x, a.y-b.y, a.z-b.z };
 }
 
@@ -273,12 +307,33 @@ void operator+=(vec3& a, const vec3& b) {
 // vec4
 // ----------------------------------------------------------------------------
 
+__host__ __device__ inline
+f32& vec4::operator[](size_t i) const {
+    return const_cast<f32&>(fields[i]);
+}
+
+__host__ __device__ inline
+vec4 vec4::min(const vec4& a, const vec4& b) {
+    return { ::min(a.x, b.x), ::min(a.y, b.y), ::min(a.z, b.z), ::min(a.w, b.w) };
+}
+
+__host__ __device__ inline
+vec4 vec4::max(const vec4& a, const vec4& b) {
+    return { ::max(a.x, b.x), ::max(a.y, b.y), ::max(a.z, b.z), ::max(a.w, b.w) };
+}
+
 __device__ inline
-vec4 operator*(f32 s, vec4 v) {
+vec4 operator*(f32 s, const vec4& v) {
     return { s * v.x, s * v.y, s * v.z, s * v.w };
 }
+
+__device__ inline
+vec4 operator-(const vec4& a, const vec4& b) {
+    return { a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w };
+}
+
 __device__ inline 
-vec4 operator+(const vec4&a, const vec4& b) {
+vec4 operator+(const vec4& a, const vec4& b) {
     return vec4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 
@@ -292,8 +347,31 @@ vec4 operator/(const vec4& a, f32 s) {
     return vec4(a.x / s, a.y / s, a.z / s, a.w / s);
 }
 
+__device__ inline
+u32 greater_than(const vec4& a, const vec4& b) {
+    return (cast(u32, a[3] > b[3]) << 3) |
+           (cast(u32, a[2] > b[2]) << 2) |
+           (cast(u32, a[1] > b[1]) << 1) |
+           (cast(u32, a[0] > b[0])     );
+}
+
+__device__ inline
+u32 greater_equals(const vec4& a, const vec4& b) {
+    return (cast(u32, a[3] >= b[3]) << 3) |
+           (cast(u32, a[2] >= b[2]) << 2) |
+           (cast(u32, a[1] >= b[1]) << 1) |
+           (cast(u32, a[0] >= b[0])     );
+}
+
 // Normal packing
 // ----------------------------------------------------------------------------
+
+#if 0
+inline u32 pack_normal(vec3 n) {
+    // You only have to store x and y, z is then implied.
+    const u32 nx = cast(u32, n.x * 32767.0f);
+}
+#endif
 
 // For theory see http://aras-p.info/texts/CompactNormalStorage.html
 // This version was humbly copied from Lighthouse 2
@@ -399,7 +477,7 @@ vec3 triangle_normal(vec3 v0, vec3 v1, vec3 v2) {
 }
 
 __device__ inline
-vec3 triangle_normal_lerp(vec3 n0, vec3 n1, vec3 n2, f32 u, float v) {
+vec3 triangle_normal_lerp(vec3 n0, vec3 n1, vec3 n2, f32 u, f32 v) {
     const f32 w = 1.0f - u - v;
     return w * n0 + u * n1 + v * n2;
 }
@@ -479,7 +557,7 @@ TriangleIntersection triangle_intersect(Ray ray, vec3 v0, vec3 v1, vec3 v2) {
 // functions above :)
 // ----------------------------------------------------------------------------
 
-inline bool sphere_intersect(Ray ray, vec3 center, f32 radius, float* t_out) {
+inline bool sphere_intersect(Ray ray, vec3 center, f32 radius, f32* t_out) {
     const vec3 o = ray.pos - center;
     const f32 b = dot(o, ray.dir);
     const f32 c = dot(o, o) - radius * radius;

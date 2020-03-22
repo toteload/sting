@@ -1,0 +1,47 @@
+#pragma once
+
+// This header file was automatically generated
+
+extern PFNGLACTIVETEXTUREPROC glActiveTexture;
+extern PFNGLATTACHSHADERPROC glAttachShader;
+extern PFNGLBINDBUFFERPROC glBindBuffer;
+extern PFNGLBINDSAMPLERPROC glBindSampler;
+extern PFNGLBINDVERTEXARRAYPROC glBindVertexArray;
+extern PFNGLBLENDEQUATIONPROC glBlendEquation;
+extern PFNGLBLENDEQUATIONSEPARATEPROC glBlendEquationSeparate;
+extern PFNGLBLENDFUNCSEPARATEPROC glBlendFuncSeparate;
+extern PFNGLBLITNAMEDFRAMEBUFFERPROC glBlitNamedFramebuffer;
+extern PFNGLBUFFERDATAPROC glBufferData;
+extern PFNGLCOMPILESHADERPROC glCompileShader;
+extern PFNGLCREATEFRAMEBUFFERSPROC glCreateFramebuffers;
+extern PFNGLCREATEPROGRAMPROC glCreateProgram;
+extern PFNGLCREATERENDERBUFFERSPROC glCreateRenderbuffers;
+extern PFNGLCREATESHADERPROC glCreateShader;
+extern PFNGLDEBUGMESSAGECALLBACKPROC glDebugMessageCallback;
+extern PFNGLDELETEBUFFERSPROC glDeleteBuffers;
+extern PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
+extern PFNGLDELETEPROGRAMPROC glDeleteProgram;
+extern PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
+extern PFNGLDELETESHADERPROC glDeleteShader;
+extern PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays;
+extern PFNGLDETACHSHADERPROC glDetachShader;
+extern PFNGLDRAWELEMENTSBASEVERTEXPROC glDrawElementsBaseVertex;
+extern PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
+extern PFNGLGENBUFFERSPROC glGenBuffers;
+extern PFNGLGENVERTEXARRAYSPROC glGenVertexArrays;
+extern PFNGLGETATTRIBLOCATIONPROC glGetAttribLocation;
+extern PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog;
+extern PFNGLGETPROGRAMIVPROC glGetProgramiv;
+extern PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog;
+extern PFNGLGETSHADERIVPROC glGetShaderiv;
+extern PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
+extern PFNGLLINKPROGRAMPROC glLinkProgram;
+extern PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC glNamedFramebufferRenderbuffer;
+extern PFNGLNAMEDRENDERBUFFERSTORAGEPROC glNamedRenderbufferStorage;
+extern PFNGLSHADERSOURCEPROC glShaderSource;
+extern PFNGLUNIFORM1IPROC glUniform1i;
+extern PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv;
+extern PFNGLUSEPROGRAMPROC glUseProgram;
+extern PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
+
+bool load_gl_extensions();

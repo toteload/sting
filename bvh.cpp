@@ -161,7 +161,7 @@ std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 tria
 #endif
 
 #ifdef __CUDACC__
-const u32 BVH_NO_HIT = cast(u32, 1) << 31;
+const u32 BVH_NO_HIT = UINT32_MAX;
 
 template<typename T, u32 Capacity>
 struct Stack {

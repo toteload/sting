@@ -163,8 +163,8 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
             const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
             const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
             const vec4 sky = skybox[vi * 4096 + ui];
-            break;
-            emission += throughput * vec3(sky.r, sky.g, sky.b);
+            //emission += throughput * vec3(sky.r, sky.g, sky.b);
+            emission += throughput;
             break;
         }
 
@@ -211,7 +211,7 @@ __device__ vec3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const *
 
     for (u32 depth = 0; ; depth++) {
         if (depth == 3) {
-            return vec3::zero();
+            return vec3(0.0f);
         }
 
         const auto isect = bvh_intersect_triangles(bvh, triangles, ray);
@@ -277,7 +277,7 @@ __global__ void accumulate_pass(vec4* frame_buffer, vec4* accumulator, vec4* scr
     const u32 id = y * width + x;
 
     if (acc_frame == 0) {
-        accumulator[id] = 0.0f;
+        accumulator[id] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
     accumulator[id] += frame_buffer[id];
@@ -339,6 +339,7 @@ __global__ void nee_test(BVHNode const * bvh, RenderTriangle const * triangles,
     buffer[id] = vec4(c, 1.0f);
 }
 
+extern "C"
 __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera,
                          vec4 const * skybox,
                          vec4* buffer, u32 width, u32 height, u32 framenum)
