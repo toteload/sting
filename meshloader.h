@@ -1,9 +1,9 @@
+#if 0
 struct TriangleRef {
     u32 i[3];
 };
 
 std::vector<RenderTriangle> load_mesh(const char* filename) {
-#if 0
     fastObjMesh* mesh = fast_obj_read(filename);
     if (!mesh) {
         // oh oh
@@ -78,5 +78,5 @@ std::vector<RenderTriangle> load_mesh(const char* filename) {
     }
 
     return triangles;
-#endif
 }
+#endif

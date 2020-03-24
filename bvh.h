@@ -73,9 +73,10 @@ struct alignas(16) RenderTriangle {
     vec3 face_normal; u32 pad6;
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2) :
-        v0(v0), v1(v1), v2(v2), 
+        v0(v0), colorr(1.0f), 
+        v1(v1), colorg(1.0f), 
+        v2(v2), colorb(1.0f), 
         material(MATERIAL_DIFFUSE), 
-        colorr(1.0f), colorg(1.0f), colorb(1.0f), 
         light_intensity(1.0f),
         area(triangle_area(v0, v1, v2))
     {
@@ -84,12 +85,12 @@ struct alignas(16) RenderTriangle {
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2, 
                    vec3 n0, vec3 n1, vec3 n2) : 
-        v0(v0), v1(v1), v2(v2), 
-        n0(n0), n1(n1), n2(n2), 
-        material(MATERIAL_DIFFUSE), 
-        colorr(1.0f), colorg(1.0f), colorb(1.0f), 
-        light_intensity(1.0f),
-        area(triangle_area(v0, v1, v2))
+        v0(v0), colorr(1.0f), 
+        v1(v1), colorg(1.0f), 
+        v2(v2), colorb(1.0f), 
+        n0(n0), material(MATERIAL_DIFFUSE), 
+        n1(n1), light_intensity(1.0f),
+        n2(n2), area(triangle_area(v0, v1, v2))
     { 
         face_normal = triangle_normal(v0, v1, v2);
     }
