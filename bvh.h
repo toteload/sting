@@ -271,14 +271,14 @@ struct alignas(16) BVHTriangleIntersection {
     u32 id; // the most significant bit will be set if there is no hit
     f32 t, u, v;
 
-    __device__ bool hit() const { return id == UINT32_MAX; }
+    __device__ bool hit() const { return id != UINT32_MAX; }
 };
 
 struct BVHInstanceIntersection {
     u32 instance_id; u32 triangle_id;
     f32 t, u, v;
 
-    __device__ bool hit() const { return instance_id == UINT32_MAX; }
+    __device__ bool hit() const { return instance_id != UINT32_MAX; }
 };
 
 __device__ BVHInstanceIntersection bvh_intersect_instance_triangles(BVHNode const * instance_bvh, 

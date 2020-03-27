@@ -297,8 +297,8 @@ int main(int argc, char** args) {
 #endif
 
 #if 1
-    //fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
-    fastObjMesh* mesh = fast_obj_read("sponza.obj");
+    fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
+    //fastObjMesh* mesh = fast_obj_read("sponza.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
@@ -357,7 +357,6 @@ int main(int argc, char** args) {
     }
 
     printf("Created %llu bvh nodes...\n", bvh.size());
-    //verify_bvh(bvh.data(), bvh.size(), triangles.size());
 
     CUdeviceptr gpu_triangles, gpu_bvh;//, gpu_lights;
     CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
@@ -506,10 +505,10 @@ int main(int argc, char** args) {
             }
         }
 
-        if (keymap.w) { camera.pos = camera.pos + seconds * 1000 * camera.w; acc_frame = 0; }
-        if (keymap.s) { camera.pos = camera.pos - seconds * 1000 * camera.w; acc_frame = 0; }
-        if (keymap.a) { camera.pos = camera.pos - seconds * 1000 * camera.u; acc_frame = 0; }
-        if (keymap.d) { camera.pos = camera.pos + seconds * 1000 * camera.u; acc_frame = 0; }
+        if (keymap.w) { camera.pos = camera.pos + seconds * 1 * camera.w; acc_frame = 0; }
+        if (keymap.s) { camera.pos = camera.pos - seconds * 1 * camera.w; acc_frame = 0; }
+        if (keymap.a) { camera.pos = camera.pos - seconds * 1 * camera.u; acc_frame = 0; }
+        if (keymap.d) { camera.pos = camera.pos + seconds * 1 * camera.u; acc_frame = 0; }
 
         if (keymap.up)    { camera.inclination -= seconds; acc_frame = 0; }
         if (keymap.down)  { camera.inclination += seconds; acc_frame = 0; }
@@ -527,17 +526,32 @@ int main(int argc, char** args) {
 
 #if 0
         const u32 block_x = 16, block_y = 16;
-        const u32 grid_x = (SCREEN_WIDTH + block_x - 1) / block_x, grid_y = (SCREEN_HEIGHT + block_y - 1) / block_y;
+        const u32 grid_x = (settings.buffer_width + block_x - 1) / block_x; 
+        const u32 grid_y = (settings.buffer_height + block_y - 1) / block_y;
         u32 light_count = lights.size();
-        u32 width = SCREEN_WIDTH, height = SCREEN_HEIGHT;
 
 #if 1
         void* render_params[] = {
-            &gpu_bvh, &gpu_triangles, &camera,
-            &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
+            &gpu_bvh, 
+            &gpu_triangles, 
+            &camera,
+            &skybox_buffer,
+            &frame_buffer, 
+            &settings.buffer_width, 
+            &settings.buffer_height, 
+            &frame_count,
         };
-        cuLaunchKernel(render_bruteforce, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
-#else
+
+        CUDA_CHECK(cuLaunchKernel(render_bruteforce, 
+                                  grid_x, grid_y, 1, 
+                                  block_x, block_y, 1, 
+                                  0, 
+                                  0, 
+                                  render_params, 
+                                  NULL));
+#endif
+
+#if 0
         void* render_params[] = {
             &gpu_bvh, &gpu_triangles, &gpu_lights, &light_count, &camera,
             &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
@@ -545,15 +559,25 @@ int main(int argc, char** args) {
         cuLaunchKernel(render_nee, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
 #endif
 
+#if 1
         void* accumulate_params[] = {
-            &frame_buffer, &accumulator, &screen_buffer, &width, &height, &acc_frame,
+            &frame_buffer, &accumulator, &screen_buffer, &settings.buffer_width, &settings.buffer_height, &acc_frame,
         };
         cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
+#endif
 
         void* blit_params[] = {
-            &screen_buffer, &width, &height,
+            &screen_buffer, 
+            &settings.buffer_width, 
+            &settings.buffer_height,
         };
-        cuLaunchKernel(blit_to_screen, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, blit_params, NULL);
+        CUDA_CHECK(cuLaunchKernel(blit_to_screen, 
+                                  grid_x, grid_y, 1, 
+                                  block_x, block_y, 1, 
+                                  0, 
+                                  0, 
+                                  blit_params, 
+                                  NULL));
 #else
         wavefront::State wavefront_state_values;
         wavefront_state_values.job_count[0] = 0;

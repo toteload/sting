@@ -11,11 +11,11 @@ namespace wavefront {
         f32 t, u, v; u32 triangle_id; // 16 bytes
 
 #ifdef __CUDACC__
-        __device__ bool hit() const { return (~triangle_id) & (cast(u32, 1) << 31); }
+        __device__ bool hit() const { return triangle_id != UINT32_MAX; }
 #endif
     }; // total 64 bytes
 
-    struct State {
+    struct alignas(16) State {
         u32 job_count[2];
         PathState* states[2];
     };

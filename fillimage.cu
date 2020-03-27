@@ -9,34 +9,15 @@ surface<void, cudaSurfaceType2D> screen_surface;
 #define PRIME0 100030001
 #define PRIME1 396191693
 
-__global__ void normal_test_pass(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera,
-                                 vec4* buffer, u32 width, u32 height, u32 framenum)
-{
-    const u32 x = blockIdx.x * blockDim.x + threadIdx.x;    
-    const u32 y = blockIdx.y * blockDim.y + threadIdx.y;    
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const u32 id = y * width + x;
-
-    // nx and ny are in range (-1.0f, 1.0f)
-    const float nx = (2.0f * float(x) + 0.5f) / width  - 1.0f;
-    const float ny = (2.0f * float(y) + 0.5f) / height - 1.0f;
-
-    const Ray ray = camera.create_ray(nx, ny);
-
+__device__ vec3 normal_test_pass(BVHNode const * bvh, RenderTriangle const * triangles, Ray ray) {
     const auto isect = bvh_intersect_triangles(bvh, triangles, ray);
     if (!isect.hit()) { 
-        buffer[id] = vec4(0.0f, 0.0f, 0.0f, 1.0f); 
-        return; 
+        return vec3(0.0f, 0.0f, 0.0f); 
     }
 
     const RenderTriangle& tri = triangles[isect.id];
     const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
-
-    buffer[id] = vec4(n, 1.0f);
+    return n;
 }
 
 // path tracing with next event estimation
@@ -152,10 +133,14 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
     vec3 emission = vec3(0.0f);
     vec3 throughput = vec3(1.0f);
 
-    for (u32 depth = 0; depth < 4; depth++) {
+    for (u32 depth = 0; depth < 3; depth++) {
         const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
 
         if (!isect.hit()) {
+#if 0
+            emission += throughput;
+            break;
+#else
             //Sample the skybox
             f32 inclination, azimuth;
             cartesian_to_spherical(ray.dir, &inclination, &azimuth);
@@ -163,9 +148,9 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
             const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
             const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
             const vec4 sky = skybox[vi * 4096 + ui];
-            //emission += throughput * vec3(sky.r, sky.g, sky.b);
-            emission += throughput;
+            emission += throughput * vec3(sky.r, sky.g, sky.b);
             break;
+#endif
         }
 
         const RenderTriangle& tri = triangles[isect.id];
@@ -352,6 +337,7 @@ __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, 
     }
 
     const int id = y * width + x;
+
     const u32 seed = (id + framenum * PRIME0) * PRIME1;
     RngXor32 rng(seed);
 
@@ -362,7 +348,7 @@ __global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, 
     const Ray ray = camera.create_ray(nx, ny);
 
     const vec3 c = pathtrace_bruteforce_2(bvh, triangles, ray, rng, skybox);
-    
+
     buffer[id] = vec4(c, 1.0f);
 }
 
@@ -377,7 +363,11 @@ __global__ void blit_to_screen(vec4* buffer, uint32_t width, uint32_t height) {
 
     const int id = y * width + x;
 
+#if 1
     surf2Dwrite<vec4>(buffer[id], screen_surface, x * sizeof(vec4), y, cudaBoundaryModeZero);
+#else
+    surf2Dwrite<vec4>(vec4(1.0f, 0.0f, 0.0f, 1.0f), screen_surface, x * sizeof(vec4), y, cudaBoundaryModeZero);
+#endif
 }
 
 // ----------------------------------------------------------------------------
