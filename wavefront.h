@@ -17,6 +17,7 @@ namespace wavefront {
 
     struct alignas(16) State {
         u32 job_count[2];
+
         PathState* states[2];
     };
 }

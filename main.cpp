@@ -150,14 +150,13 @@ struct Settings {
 };
 
 int main(int argc, char** args) {
-    //UNUSED(argc); UNUSED(args);
     unused(argc); unused(args);
 
     Settings settings = {
-        .window_width = SCREEN_WIDTH,
-        .window_height = SCREEN_HEIGHT,
-        .buffer_width  = SCREEN_WIDTH / 2,
-        .buffer_height = SCREEN_HEIGHT / 2,
+        .window_width  = 1920,
+        .window_height = 1080,
+        .buffer_width  = 1920/4,
+        .buffer_height = 1080/4,
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -175,7 +174,7 @@ int main(int argc, char** args) {
                                           SDL_WINDOWPOS_CENTERED,
                                           settings.window_width,
                                           settings.window_height,
-                                          SDL_WINDOW_OPENGL);
+                                          SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
@@ -297,8 +296,8 @@ int main(int argc, char** args) {
 #endif
 
 #if 1
-    fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
-    //fastObjMesh* mesh = fast_obj_read("sponza.obj");
+    //fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
+    fastObjMesh* mesh = fast_obj_read("sponza.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
@@ -505,10 +504,10 @@ int main(int argc, char** args) {
             }
         }
 
-        if (keymap.w) { camera.pos = camera.pos + seconds * 1 * camera.w; acc_frame = 0; }
-        if (keymap.s) { camera.pos = camera.pos - seconds * 1 * camera.w; acc_frame = 0; }
-        if (keymap.a) { camera.pos = camera.pos - seconds * 1 * camera.u; acc_frame = 0; }
-        if (keymap.d) { camera.pos = camera.pos + seconds * 1 * camera.u; acc_frame = 0; }
+        if (keymap.w) { camera.pos = camera.pos + seconds * 1000 * camera.w; acc_frame = 0; }
+        if (keymap.s) { camera.pos = camera.pos - seconds * 1000 * camera.w; acc_frame = 0; }
+        if (keymap.a) { camera.pos = camera.pos - seconds * 1000 * camera.u; acc_frame = 0; }
+        if (keymap.d) { camera.pos = camera.pos + seconds * 1000 * camera.u; acc_frame = 0; }
 
         if (keymap.up)    { camera.inclination -= seconds; acc_frame = 0; }
         if (keymap.down)  { camera.inclination += seconds; acc_frame = 0; }
@@ -579,6 +578,8 @@ int main(int argc, char** args) {
                                   blit_params, 
                                   NULL));
 #else
+        printf("Frame %llu\n", frame_count);
+
         wavefront::State wavefront_state_values;
         wavefront_state_values.job_count[0] = 0;
         wavefront_state_values.job_count[1] = 0;
@@ -589,56 +590,63 @@ int main(int argc, char** args) {
         CUDA_CHECK(cuMemsetD8(frame_buffer, 0, settings.buffer_width * settings.buffer_height * sizeof(vec4)));
 
         const u32 block_x = 128;
-        u32 grid_x = (settings.buffer_width * settings.buffer_height + block_x - 1) / block_x;
+        const u32 grid_x = (settings.buffer_width * settings.buffer_height + block_x - 1) / block_x;
 
         u32 current = 0;
 
         {
             void* generate_primary_rays_params[] = {
-                &wavefront_state, &current, &camera, &settings.buffer_width, &settings.buffer_height, &frame_count,
+                &wavefront_state, 
+                &current, 
+                &camera, 
+                &settings.buffer_width, 
+                &settings.buffer_height, 
+                &frame_count,
             };
+
             CUDA_CHECK(cuLaunchKernel(generate_primary_rays, 
                                       grid_x, 1, 1, 
                                       block_x, 1, 1, 
-                                      0, 0, 
-                                      generate_primary_rays_params, NULL));
+                                      0, 
+                                      0, 
+                                      generate_primary_rays_params, 
+                                      NULL));
         }
 
         for (u32 i = 0; i < 3; i++) {
-            cuMemcpyDtoH(&wavefront_state_values, wavefront_state, sizeof(wavefront::State));
-
-            const u32 active_jobs = wavefront_state_values.job_count[current];
-            //printf("%d active pixels...\n", active_jobs);
-
-            if (active_jobs == 0) { break; }
-
-            wavefront_state_values.job_count[current ^ 1] = 0;
-            cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State));
-
-            grid_x = (active_jobs + block_x - 1) / block_x;
-
             void* extend_rays_params[] = {
-                &wavefront_state, &current, &gpu_bvh, &gpu_triangles,
+                &wavefront_state, 
+                &current, 
+                &gpu_bvh, 
+                &gpu_triangles,
             };
+
             CUDA_CHECK(cuLaunchKernel(extend_rays, 
                                       grid_x, 1, 1, 
                                       block_x, 1, 1, 
-                                      0, 0, 
-                                      extend_rays_params, NULL));
+                                      0, 
+                                      0, 
+                                      extend_rays_params, 
+                                      NULL));
 
             void* shade_params[] = {
-                &wavefront_state, &current, &gpu_triangles, &frame_buffer,
+                &wavefront_state, 
+                &current, 
+                &gpu_triangles, 
+                &frame_buffer,
             };
+
             CUDA_CHECK(cuLaunchKernel(shade, 
                                       grid_x, 1, 1, 
                                       block_x, 1, 1, 
-                                      0, 0, 
-                                      shade_params, NULL));
+                                      0, 
+                                      0, 
+                                      shade_params, 
+                                      NULL));
 
             current ^= 1;
         }
 
-#if 1
         {
             const u32 block_x = 16, block_y = 16;
             const u32 grid_x = (settings.buffer_width + block_x - 1) / block_x; 
@@ -648,7 +656,6 @@ int main(int argc, char** args) {
             };
             cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
         }
-#endif
 
         {
             const u32 block_x = 16, block_y = 16;

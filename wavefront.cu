@@ -44,7 +44,9 @@ __global__ void generate_primary_rays(wavefront::State* state, u32 current,
     state->states[current][id].ray_dir = primary_ray.dir;
     state->states[current][id].pixel_index = id;
 
-    atomicAdd(&state->job_count[current], 1);
+    if (id == 0) {
+        state->job_count[current] = width * height;
+    }
 }
 
 extern "C"
@@ -64,6 +66,12 @@ __global__ void extend_rays(wavefront::State* state, u32 current,
     state->states[current][id].u = isect.u;
     state->states[current][id].v = isect.v;
     state->states[current][id].triangle_id = isect.id;
+
+#if 1
+    if (id == 0) {
+        state->job_count[current ^ 1] = 0;
+    }
+#endif
 }
 
 extern "C"
@@ -76,14 +84,12 @@ __global__ void shade(wavefront::State* state, u32 current,
         return;
     }
 
-    const u32 next = current ^ 1;
     wavefront::PathState& pathstate = state->states[current][id];
 
     RngXor32& rng = pathstate.rng;
     const RenderTriangle& tri = triangles[pathstate.triangle_id];
 
     if (!pathstate.hit()) {
-        //buffer[pathstate.pixel_index] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
         buffer[pathstate.pixel_index] = vec4(pathstate.throughput, 1.0f);
         return;
     }
@@ -100,18 +106,15 @@ __global__ void shade(wavefront::State* state, u32 current,
         const vec3 p = pathstate.ray_pos + pathstate.t * pathstate.ray_dir;
         const Ray extend_ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
 
-        //buffer[pathstate.pixel_index] = vec4(scatter_direction, 1.0f);
-        //return;
+        const u32 nextid = atomicAdd(&state->job_count[current ^ 1], 1);
 
-        const u32 nextid = atomicAdd(&state->job_count[next], 1);
-
-        state->states[next][nextid].ray_pos = extend_ray.pos;
-        state->states[next][nextid].ray_dir = extend_ray.dir;
-        state->states[next][nextid].rng = pathstate.rng;
-        state->states[next][nextid].pixel_index = pathstate.pixel_index;
+        state->states[current ^ 1][nextid].ray_pos = extend_ray.pos;
+        state->states[current ^ 1][nextid].ray_dir = extend_ray.dir;
+        state->states[current ^ 1][nextid].rng = pathstate.rng;
+        state->states[current ^ 1][nextid].pixel_index = pathstate.pixel_index;
 
         const vec3& brdf = tri.color();
-        state->states[next][nextid].throughput = pathstate.throughput * brdf;
+        state->states[current ^ 1][nextid].throughput = pathstate.throughput * brdf;
     } break;
     case MATERIAL_EMISSIVE: {
         buffer[pathstate.pixel_index] = vec4(pathstate.throughput * tri.light_intensity * tri.color(), 1.0f);

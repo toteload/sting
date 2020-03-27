@@ -9,6 +9,7 @@ stuff with normals:
 [ ] Set default winding order to the triangles to determine normal direction
     and barycentric coordinates orientation. Make this consistent in the code.
     [ ] normal_lerp, RenderTriangle constructor, maybe more
+
 [ ] calculate interpolated normals from triangle soup
 
 [x] next event estimation
@@ -55,10 +56,10 @@ Just stuff I may want to add or change but not yet planned in
 [ ] normal packing and unpacking
 [ ] multiple importance sampling
 [ ] nested instancing (could be cool :D)
-[ ] debug statistics: framerate, ms per frame, maybe frame time histogram
 [ ] add functionality to have the render buffer size and the screen size
     to be different dimensions
-[ ] optimize AABB with SIMD
+[ ] optimize AABB with SIMD, is not really necessary since we do all aabb
+    intersects on the gpu which doesn't have SIMD so...
 [ ] improve the camera with fov instead of plane distance, is a bit more
     natural to setup like that
 [ ] more materials!

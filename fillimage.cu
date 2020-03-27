@@ -137,7 +137,7 @@ __device__ vec3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle const
         const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
 
         if (!isect.hit()) {
-#if 0
+#if 1
             emission += throughput;
             break;
 #else

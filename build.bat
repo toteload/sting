@@ -1,8 +1,8 @@
 @echo off
 
 :: build the CUDA files
-nvcc -O3 -ptx -Xcompiler "/MD /Oi /O2 /fp:fast" -c fillimage.cu
-::nvcc -O3 -ptx -lineinfo -Xcompiler "/MD /Oi /O2 /fp:fast" -c wavefront.cu
+::nvcc -O3 -ptx -Xcompiler "/MD /Oi /O2 /fp:fast" -c fillimage.cu
+nvcc -O3 -ptx -lineinfo -Xcompiler "/MD /Oi /O2 /fp:fast" -c wavefront.cu
 
 python genglextensions.py
 
@@ -11,4 +11,4 @@ set LIBS=-libpath:"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.1\lib\
 
 if not exist extlib.obj clang-cl -nologo -W4 -MD -Oi -O2 %INCLUDES% -c extlib.cpp
 
-clang-cl -W4 -MD -Oi -O2 -Z7 main.cpp extlib.obj fillimage.obj %INCLUDES% -o sting -link %LIBS% -subsystem:console
+clang-cl -W4 -MD -Oi -O2 -Z7 main.cpp extlib.obj fillimage.obj %INCLUDES% -o sting -link %LIBS% -subsystem:windows

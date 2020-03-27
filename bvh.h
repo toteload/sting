@@ -67,20 +67,19 @@ struct alignas(16) RenderTriangle {
     vec3 v0; f32 colorr;
     vec3 v1; f32 colorg;
     vec3 v2; f32 colorb;
+
     vec3 n0; u32 material;
     vec3 n1; f32 light_intensity;
-    vec3 n2; f32 area;
-    vec3 face_normal; u32 pad6;
+    vec3 n2; u32 pad0;
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2) :
         v0(v0), colorr(1.0f), 
         v1(v1), colorg(1.0f), 
         v2(v2), colorb(1.0f), 
         material(MATERIAL_DIFFUSE), 
-        light_intensity(1.0f),
-        area(triangle_area(v0, v1, v2))
+        light_intensity(1.0f)
     {
-        n0 = n1 = n2 = face_normal = triangle_normal(v0, v1, v2);
+        n0 = n1 = n2 = triangle_normal(v0, v1, v2);
     }
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2, 
@@ -90,9 +89,8 @@ struct alignas(16) RenderTriangle {
         v2(v2), colorb(1.0f), 
         n0(n0), material(MATERIAL_DIFFUSE), 
         n1(n1), light_intensity(1.0f),
-        n2(n2), area(triangle_area(v0, v1, v2))
+        n2(n2)
     { 
-        face_normal = triangle_normal(v0, v1, v2);
     }
 
     __host__ __device__ vec3 color() const {
