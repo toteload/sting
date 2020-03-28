@@ -60,42 +60,41 @@ enum RenderMaterial : u32 {
     MATERIAL_EMISSIVE = 3,
 };
 
-// NOTE
-// This triangle format has not yet been optimized for size.
-// It is the way it is for the sake of simplicity
-struct alignas(16) RenderTriangle {
-    vec3 v0; f32 colorr;
-    vec3 v1; f32 colorg;
-    vec3 v2; f32 colorb;
+struct Material {
+    enum Type : u32 {
+        DIFFUSE,
+        MIRROR,
+        EMISSIVE,
+    } type;
 
-    vec3 n0; u32 material;
-    vec3 n1; f32 light_intensity;
-    vec3 n2; u32 pad0;
+    f32 r, g, b; f32 light_intensity;
 
-    RenderTriangle(vec3 v0, vec3 v1, vec3 v2) :
-        v0(v0), colorr(1.0f), 
-        v1(v1), colorg(1.0f), 
-        v2(v2), colorb(1.0f), 
-        material(MATERIAL_DIFFUSE), 
-        light_intensity(1.0f)
-    {
-        n0 = n1 = n2 = triangle_normal(v0, v1, v2);
+    __device__ vec3 color() const {
+        return vec3(r, g, b);
     }
+};
+
+struct alignas(16) RenderTriangle {
+    vec3 v0; u32 n0;
+    vec3 v1; u32 n1;
+    vec3 v2; u32 n2;
+    vec3 face_normal; u32 material_id;
+
+    RenderTriangle(vec3 v0, vec3 v1, vec3 v2, u32 material_id) :
+        v0(v0), n0(pack_normal(vec3(0.0f, 1.0f, 0.0f))),
+        v1(v1), n1(pack_normal(vec3(0.0f, 1.0f, 0.0f))),
+        v2(v2), n2(pack_normal(vec3(0.0f, 1.0f, 0.0f))),
+        face_normal(triangle_normal(v0, v1, v2)), material_id(material_id)
+    { }
 
     RenderTriangle(vec3 v0, vec3 v1, vec3 v2, 
-                   vec3 n0, vec3 n1, vec3 n2) : 
-        v0(v0), colorr(1.0f), 
-        v1(v1), colorg(1.0f), 
-        v2(v2), colorb(1.0f), 
-        n0(n0), material(MATERIAL_DIFFUSE), 
-        n1(n1), light_intensity(1.0f),
-        n2(n2)
-    { 
-    }
-
-    __host__ __device__ vec3 color() const {
-        return vec3(colorr, colorg, colorb);
-    }
+                   vec3 n0, vec3 n1, vec3 n2,
+                   u32 material_id) : 
+        v0(v0), n0(pack_normal(n0)),
+        v1(v1), n1(pack_normal(n1)),
+        v2(v2), n2(pack_normal(n2)),
+        face_normal(triangle_normal(v0, v1, v2)), material_id(material_id)
+    { }
 };
 
 struct Transform {

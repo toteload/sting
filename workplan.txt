@@ -10,6 +10,10 @@ stuff with normals:
     and barycentric coordinates orientation. Make this consistent in the code.
     [ ] normal_lerp, RenderTriangle constructor, maybe more
 
+[ ] currently uses world space normals. should use tangent space normals, this
+    also makes packing normals a lot simpler and more natural as tangent space
+    is used everywhere.
+
 [ ] calculate interpolated normals from triangle soup
 
 [x] next event estimation

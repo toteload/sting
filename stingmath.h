@@ -366,12 +366,20 @@ u32 greater_equals(const vec4& a, const vec4& b) {
 // Normal packing
 // ----------------------------------------------------------------------------
 
-#if 0
-inline u32 pack_normal(vec3 n) {
-    // You only have to store x and y, z is then implied.
-    const u32 nx = cast(u32, n.x * 32767.0f);
+__host__ inline 
+u32 pack_normal(vec3 n) {
+    const i16 nx = cast(i16, n.x * 32767.0f);
+    const i16 nz = cast(i16, n.z * 32767.0f);
+    return (cast(u32, nx) << 16) | (cast(u32, nz) & 0xffff);
 }
-#endif
+
+__host__ __device__ inline 
+vec3 unpack_normal(u32 pn) {
+    const f32 nx = (pn >> 16) / 32767.0f;
+    const f32 nz = (pn & 0xffff) / 32767.0f;
+    const f32 ny = sqrtf(1.0f - nx*nx - nz*nz);
+    return vec3(nx, ny, nz);
+}
 
 // For theory see http://aras-p.info/texts/CompactNormalStorage.html
 // This version was humbly copied from Lighthouse 2

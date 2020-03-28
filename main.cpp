@@ -101,8 +101,11 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
 
     for (u32 i = 0; i < columns; i++) {
         const u32 inext = (i + 1) % columns;
+#if 0
         triangles.push_back(RenderTriangle(    pts[top],     pts[i],     pts[inext],
                                            normals[top], normals[i], normals[inext]));
+#endif
+        triangles.push_back(RenderTriangle(pts[top], pts[i], pts[inext], 0));
     }
 
     for (u32 r = 0; r < rows - 2; r++) {
@@ -112,10 +115,14 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
             const u32 rowi = r * columns;
             const u32 rowinext = (r + 1) * columns;
 
+#if 0
             triangles.push_back(RenderTriangle(    pts[rowi + c],     pts[rowinext + c],     pts[rowi + cnext],
                                                normals[rowi + c], normals[rowinext + c], normals[rowi + cnext]));
             triangles.push_back(RenderTriangle(    pts[rowinext + c],     pts[rowinext + cnext],     pts[rowi + cnext],
                                                normals[rowinext + c], normals[rowinext + cnext], normals[rowi + cnext]));
+#endif
+            triangles.push_back(RenderTriangle(pts[rowi + c], pts[rowinext + c], pts[rowi + cnext], 0));
+            triangles.push_back(RenderTriangle(pts[rowinext + c], pts[rowinext + cnext], pts[rowi + cnext], 0));
         }
     }
 
@@ -123,15 +130,11 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
         const u32 inext = (i + 1) % columns;
         const u32 rowi = (rows - 2) * columns;
 
+        triangles.push_back(RenderTriangle(pts[bottom], pts[rowi + inext], pts[rowi + i], 0));
+#if 0
         triangles.push_back(RenderTriangle(    pts[bottom],     pts[rowi + inext],     pts[rowi + i],
                                            normals[bottom], normals[rowi + inext], normals[rowi + i]));
-    }
-
-    for (u32 i = 0; i < triangles.size(); i++) {
-        triangles[i].material = MATERIAL_DIFFUSE;
-        triangles[i].colorr = 0.8f;
-        triangles[i].colorg = 0.8f;
-        triangles[i].colorb = 0.8f;
+#endif
     }
 
     return triangles;
@@ -209,7 +212,8 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuModuleGetFunction(&accumulate, fillimage, "accumulate_pass"));
     CUDA_CHECK(cuModuleGetFunction(&blit_to_screen, fillimage, "blit_to_screen"));
 
-    CUfunction generate_primary_rays, extend_rays, shade;
+    CUfunction reset, generate_primary_rays, extend_rays, shade;
+    CUDA_CHECK(cuModuleGetFunction(&reset, wavefrontptx, "reset"));
     CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays, wavefrontptx, "generate_primary_rays"));
     CUDA_CHECK(cuModuleGetFunction(&extend_rays, wavefrontptx, "extend_rays"));
     CUDA_CHECK(cuModuleGetFunction(&shade, wavefrontptx, "shade"));
@@ -301,6 +305,9 @@ int main(int argc, char** args) {
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
+    std::vector<Material> materials;
+    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 1.0f, .b = 1.0f, });
+
     if (!mesh) {
         printf("Failed to load mesh...\n");
         return 1;
@@ -333,9 +340,7 @@ int main(int argc, char** args) {
 
                 vertex_index++;
             }
-            auto tri = RenderTriangle(vertices[0], vertices[1], vertices[2]);
-            //tri.material = MATERIAL_MIRROR;
-            tri.material = MATERIAL_DIFFUSE;
+            auto tri = RenderTriangle(vertices[0], vertices[1], vertices[2], 0);
             triangles.push_back(tri);
         }
     }
@@ -347,6 +352,7 @@ int main(int argc, char** args) {
     
     std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size());
 
+#if 0
     std::vector<u32> lights;
     for (u32 i = 0; i < triangles.size(); i++) {
         if (triangles[i].material == MATERIAL_EMISSIVE) {
@@ -354,16 +360,19 @@ int main(int argc, char** args) {
             printf("light found at %d\n", i);
         }
     }
+#endif
 
     printf("Created %llu bvh nodes...\n", bvh.size());
 
-    CUdeviceptr gpu_triangles, gpu_bvh;//, gpu_lights;
+    CUdeviceptr gpu_triangles, gpu_bvh, gpu_materials;//, gpu_lights;
     CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
     CUDA_CHECK(cuMemAlloc(&gpu_bvh, bvh.size() * sizeof(BVHNode)));
+    CUDA_CHECK(cuMemAlloc(&gpu_materials, materials.size() * sizeof(Material)));
     //cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
 
     CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_materials, materials.data(), materials.size() * sizeof(Material)));
     //cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
 
     // Skybox loading
@@ -447,6 +456,7 @@ int main(int argc, char** args) {
 
             switch (event.type) {
             case SDL_QUIT: { running = 0; } break;
+#if 1
             case SDL_MOUSEBUTTONDOWN: {
                 if (io.WantCaptureMouse) { break; }
 
@@ -501,6 +511,7 @@ int main(int argc, char** args) {
                 case SDLK_RIGHT: { keymap.right = 0; } break;
                 }
             } break;
+#endif
             }
         }
 
@@ -614,6 +625,19 @@ int main(int argc, char** args) {
         }
 
         for (u32 i = 0; i < 3; i++) {
+            void* reset_params[] = {
+                &wavefront_state,
+                &current,
+            };
+
+            cuLaunchKernel(reset,
+                           1, 1, 1,
+                           1, 1, 1,
+                           0,
+                           0,
+                           reset_params,
+                           NULL);
+
             void* extend_rays_params[] = {
                 &wavefront_state, 
                 &current, 
@@ -633,6 +657,7 @@ int main(int argc, char** args) {
                 &wavefront_state, 
                 &current, 
                 &gpu_triangles, 
+                &gpu_materials,
                 &frame_buffer,
             };
 

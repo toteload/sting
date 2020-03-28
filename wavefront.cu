@@ -17,6 +17,17 @@
 // Currently, I am not sure which one would be better.
 
 extern "C"
+__global__ void reset(wavefront::State* state, u32 current) {
+    const u32 id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (id != 0) {
+        return;
+    }
+
+    state->job_count[current ^ 1] = 0;
+}
+
+extern "C"
 __global__ void generate_primary_rays(wavefront::State* state, u32 current, 
                                       PointCamera camera, u32 width, u32 height, u32 framenum) 
 {
@@ -66,17 +77,13 @@ __global__ void extend_rays(wavefront::State* state, u32 current,
     state->states[current][id].u = isect.u;
     state->states[current][id].v = isect.v;
     state->states[current][id].triangle_id = isect.id;
-
-#if 1
-    if (id == 0) {
-        state->job_count[current ^ 1] = 0;
-    }
-#endif
 }
 
 extern "C"
 __global__ void shade(wavefront::State* state, u32 current,
-                      RenderTriangle const * triangles, vec4* buffer) 
+                      RenderTriangle const * triangles, 
+                      Material const * materials,
+                      vec4* buffer) 
 {
     const u32 id = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -94,9 +101,24 @@ __global__ void shade(wavefront::State* state, u32 current,
         return;
     }
 
-    switch (tri.material) {
-    case MATERIAL_DIFFUSE: {
-        const vec3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, pathstate.u, pathstate.v);
+    const Material& material = materials[tri.material_id];
+
+    switch (material.type) {
+    case Material::DIFFUSE: {
+        vec3 n;
+#if 1
+        {
+            const vec3 tangent_space_normal = triangle_normal_lerp(unpack_normal(tri.n0), 
+                                                                   unpack_normal(tri.n1), 
+                                                                   unpack_normal(tri.n2), 
+                                                                   pathstate.u, pathstate.v);
+            vec3 t, b;
+            build_orthonormal_basis(tri.face_normal, &t, &b);
+            n = to_world_space(tangent_space_normal, tri.face_normal, t, b); 
+        }
+#else
+        n = tri.face_normal;
+#endif
         const vec3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
 
         vec3 t, b;
@@ -113,11 +135,11 @@ __global__ void shade(wavefront::State* state, u32 current,
         state->states[current ^ 1][nextid].rng = pathstate.rng;
         state->states[current ^ 1][nextid].pixel_index = pathstate.pixel_index;
 
-        const vec3& brdf = tri.color();
+        const vec3& brdf = material.color();
         state->states[current ^ 1][nextid].throughput = pathstate.throughput * brdf;
     } break;
-    case MATERIAL_EMISSIVE: {
-        buffer[pathstate.pixel_index] = vec4(pathstate.throughput * tri.light_intensity * tri.color(), 1.0f);
+    case Material::EMISSIVE: {
+        buffer[pathstate.pixel_index] = vec4(pathstate.throughput * material.light_intensity * material.color(), 1.0f);
     } break;
     }
 }
