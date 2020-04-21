@@ -12,21 +12,19 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "common.h"
-#include "glext.h"
-#include "gl_extension_loader.cpp"
+#include "dab/dab.h"
+#include "ext/glext.h"
+#include "ext/fast_obj.h"
+#include "ext/stb_image.h"
+#include "porky_load.cpp"
 #include "stingmath.h"
 #include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
-#include "fast_obj.h"
-#include "stb_image.h"
-
-#include "meshloader.h"
 
 #include "wavefront.h"
 
-#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "gl_extension_loader.h"
+#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "porky_load.h"
 #include "imgui/imconfig.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl.h"
@@ -51,9 +49,6 @@ inline CUresult cuda_err_check(CUresult err, const char* file, int line) {
 
 #define CUDA_CHECK(...) cuda_err_check(__VA_ARGS__, __FILE__, __LINE__)
 
-const u32 SCREEN_WIDTH  = 1400;
-const u32 SCREEN_HEIGHT = 800;
-
 struct Keymap {
     u32 w : 1;
     u32 s : 1;
@@ -71,19 +66,19 @@ struct Keymap {
     }
 };
 
-std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, vec3 pos) {
+std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, Vector3 pos) {
     if (rows < 2 || columns < 3) {
         return { };
     }
 
-    std::vector<vec3> pts;
-    std::vector<vec3> normals;
+    std::vector<Vector3> pts;
+    std::vector<Vector3> normals;
 
     for (u32 i = 1; i < rows; i++) {
         for (u32 j = 0; j < columns; j++) {
             const f32 phi = i * M_PI / cast(f32, rows);
             const f32 theta = (cast(f32, j) / cast(f32, columns)) * 2.0f * M_PI;
-            const vec3 n = spherical_to_cartesian(phi, theta);
+            const Vector3 n = spherical_to_cartesian(phi, theta);
             pts.push_back(pos + radius * n);
             normals.push_back(n);
         }
@@ -148,16 +143,14 @@ void unused(const T& x) {
 struct Settings {
     u32 window_width, window_height;
     u32 buffer_width, buffer_height;
-
-    // bvh
 };
 
 int main(int argc, char** args) {
     unused(argc); unused(args);
 
     Settings settings = {
-        .window_width  = 1920,
-        .window_height = 1080,
+        .window_width  = 1920/2,
+        .window_height = 1080/2,
         .buffer_width  = 1920/4,
         .buffer_height = 1080/4,
     };
@@ -177,7 +170,7 @@ int main(int argc, char** args) {
                                           SDL_WINDOWPOS_CENTERED,
                                           settings.window_width,
                                           settings.window_height,
-                                          SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                          SDL_WINDOW_OPENGL);// | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
@@ -186,7 +179,7 @@ int main(int argc, char** args) {
 
     SDL_GL_MakeCurrent(window, gl_context);
 
-    if (!load_gl_extensions()) {
+    if (!porky_load_extensions()) {
         return 1;
     }
 
@@ -241,9 +234,9 @@ int main(int argc, char** args) {
     cuSurfRefSetArray(screen_surface, screen_array, 0);
 
     CUdeviceptr screen_buffer, frame_buffer, accumulator;
-    CUDA_CHECK(cuMemAlloc(&screen_buffer, settings.buffer_width * settings.buffer_height * sizeof(vec4)));
-    CUDA_CHECK(cuMemAlloc(&frame_buffer,  settings.buffer_width * settings.buffer_height * sizeof(vec4)));
-    CUDA_CHECK(cuMemAlloc(&accumulator,   settings.buffer_width * settings.buffer_height * sizeof(vec4)));
+    CUDA_CHECK(cuMemAlloc(&screen_buffer, settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
+    CUDA_CHECK(cuMemAlloc(&frame_buffer,  settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
+    CUDA_CHECK(cuMemAlloc(&accumulator,   settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
 
     // Wavefront state
     // --------------------------------------------------------------------- //
@@ -255,18 +248,16 @@ int main(int argc, char** args) {
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
 
-    Scene scene;
-    
     std::vector<RenderTriangle> triangles;
 
 #if 0
-    auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f, vec3(0.0f, 0.0f, 0.0f));
+    auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f, Vector3(0.0f, 0.0f, 0.0f));
     for (u32 i = 0; i < sphere_mesh.size(); i++) {
         sphere_mesh[i].material = MATERIAL_DIFFUSE;
     }
     triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
 
-    auto spheremesh0 = generate_sphere_mesh(36, 36, 0.3f, vec3(0.4f, 0.0f, 0.0f));
+    auto spheremesh0 = generate_sphere_mesh(36, 36, 0.3f, Vector3(0.4f, 0.0f, 0.0f));
     for (u32 i = 0; i < spheremesh0.size(); i++) {
         spheremesh0[i].material = MATERIAL_DIFFUSE;
     }
@@ -274,25 +265,25 @@ int main(int argc, char** args) {
 #endif
 
 #if 0
-    auto light0 = RenderTriangle(vec3(0.0f, 0.4f, 0.0f),
-                                 vec3(0.3f, 0.4f, 0.0f),
-                                 vec3(0.0f, 0.5f, 0.3f));
+    auto light0 = RenderTriangle(Vector3(0.0f, 0.4f, 0.0f),
+                                 Vector3(0.3f, 0.4f, 0.0f),
+                                 Vector3(0.0f, 0.5f, 0.3f));
     light0.material = MATERIAL_EMISSIVE;
     light0.colorr = light0.colorg = 0.0f;
     light0.light_intensity = 1.0f;
     triangles.push_back(light0);
 
-    auto light1 = RenderTriangle(vec3(0.0f, -0.4f, 0.0f),
-                                 vec3(0.3f, -0.4f, 0.0f),
-                                 vec3(0.0f, -0.5f, 0.3f));
+    auto light1 = RenderTriangle(Vector3(0.0f, -0.4f, 0.0f),
+                                 Vector3(0.3f, -0.4f, 0.0f),
+                                 Vector3(0.0f, -0.5f, 0.3f));
     light1.material = MATERIAL_EMISSIVE;
     light1.colorb = light1.colorg = 0.0f;
     light1.light_intensity = 1.0f;
     triangles.push_back(light1);
 
-    auto light2 = RenderTriangle(vec3(0.0f, 0.0f, -0.8f),
-                                 vec3(0.3f, 0.0f, -0.8f),
-                                 vec3(0.3f, 0.5f, -0.8f));
+    auto light2 = RenderTriangle(Vector3(0.0f, 0.0f, -0.8f),
+                                 Vector3(0.3f, 0.0f, -0.8f),
+                                 Vector3(0.3f, 0.5f, -0.8f));
     light2.material = MATERIAL_EMISSIVE;
     light2.colorb = light2.colorr = 0.0f;
     light2.light_intensity = 4.0f;
@@ -301,7 +292,7 @@ int main(int argc, char** args) {
 
 #if 1
     //fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
-    fastObjMesh* mesh = fast_obj_read("sponza.obj");
+    fastObjMesh* mesh = fast_obj_read("data/sponza.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
 
@@ -328,7 +319,7 @@ int main(int argc, char** args) {
                 continue;
             }
 
-            vec3 vertices[3];
+            Vector3 vertices[3];
 
             // Loop over all the vertices in this face
             for (uint32_t k = 0; k < vertex_count; k++) {
@@ -350,7 +341,8 @@ int main(int argc, char** args) {
 
     printf("%llu RenderTriangles created...\n", triangles.size());
     
-    std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size());
+    u32 bvh_depth, max_primitives;
+    std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size(), &bvh_depth, &max_primitives);
 
 #if 0
     std::vector<u32> lights;
@@ -363,6 +355,7 @@ int main(int argc, char** args) {
 #endif
 
     printf("Created %llu bvh nodes...\n", bvh.size());
+    printf("BVH depth %d, max triangles in leaf %d\n", bvh_depth, max_primitives);
 
     CUdeviceptr gpu_triangles, gpu_bvh, gpu_materials;//, gpu_lights;
     CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
@@ -379,14 +372,14 @@ int main(int argc, char** args) {
     // --------------------------------------------------------------------- //
 #if 1
     i32 hdr_width, hdr_height, hdr_channels;
-    u8* skybox_image = stbi_load("cloudysky_4k.jpg", &hdr_width, &hdr_height, &hdr_channels, 4);
+    u8* skybox_image = stbi_load("data/cloudysky_4k.jpg", &hdr_width, &hdr_height, &hdr_channels, 4);
     if (!skybox_image) {
         printf("Failed to load sky dome...\n");
     }
 
     printf("Loaded skybox texture, width: %d, height: %d\n", hdr_width, hdr_height);
 
-    vec4* skybox = cast(vec4*, malloc(hdr_width * hdr_height * sizeof(vec4)));
+    Vector4* skybox = cast(Vector4*, malloc(hdr_width * hdr_height * sizeof(Vector4)));
     for (i32 i = 0; i < hdr_width * hdr_height; i++) {
         skybox[i] = vec4(skybox_image[i * 4 + 0] / 255.0f,
                          skybox_image[i * 4 + 1] / 255.0f,
@@ -395,8 +388,8 @@ int main(int argc, char** args) {
     }
 
     CUdeviceptr skybox_buffer;
-    CUDA_CHECK(cuMemAlloc(&skybox_buffer, hdr_width * hdr_height * sizeof(vec4)));
-    CUDA_CHECK(cuMemcpyHtoD(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(vec4)));
+    CUDA_CHECK(cuMemAlloc(&skybox_buffer, hdr_width * hdr_height * sizeof(Vector4)));
+    CUDA_CHECK(cuMemcpyHtoD(skybox_buffer, skybox, hdr_width * hdr_height * sizeof(Vector4)));
 
     free(skybox);
     stbi_image_free(skybox_image);
@@ -438,8 +431,11 @@ int main(int argc, char** args) {
     u32 accumulate_toggle = 1;
 
     bool show_demo = false;
+    bool show_controls = false;
 
     f32 frame_time = 0;
+
+    glEnable(GL_FRAMEBUFFER_SRGB);
 
     bool running = true;
     while (running) {
@@ -538,12 +534,14 @@ int main(int argc, char** args) {
         const u32 block_x = 16, block_y = 16;
         const u32 grid_x = (settings.buffer_width + block_x - 1) / block_x; 
         const u32 grid_y = (settings.buffer_height + block_y - 1) / block_y;
-        u32 light_count = lights.size();
+
+        //u32 light_count = lights.size();
 
 #if 1
         void* render_params[] = {
             &gpu_bvh, 
             &gpu_triangles, 
+            &gpu_materials,
             &camera,
             &skybox_buffer,
             &frame_buffer, 
@@ -589,8 +587,6 @@ int main(int argc, char** args) {
                                   blit_params, 
                                   NULL));
 #else
-        printf("Frame %llu\n", frame_count);
-
         wavefront::State wavefront_state_values;
         wavefront_state_values.job_count[0] = 0;
         wavefront_state_values.job_count[1] = 0;
@@ -598,7 +594,7 @@ int main(int argc, char** args) {
         wavefront_state_values.states[1] = cast(wavefront::PathState*, pathstate_buffer[1]);
 
         CUDA_CHECK(cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State)));
-        CUDA_CHECK(cuMemsetD8(frame_buffer, 0, settings.buffer_width * settings.buffer_height * sizeof(vec4)));
+        CUDA_CHECK(cuMemsetD8(frame_buffer, 0, settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
 
         const u32 block_x = 128;
         const u32 grid_x = (settings.buffer_width * settings.buffer_height + block_x - 1) / block_x;
@@ -710,6 +706,10 @@ int main(int argc, char** args) {
                     show_demo = true;
                 }
 
+                if (ImGui::MenuItem("Show controls")) {
+                    show_controls = true;
+                }
+
                 if (ImGui::MenuItem("Quit")) {
                     running = false;
                 }
@@ -739,6 +739,17 @@ int main(int argc, char** args) {
 
         if (show_demo) { ImGui::ShowDemoWindow(&show_demo); }
 
+        bool reset_frame = false;
+        if (show_controls) {
+            ImGui::Begin("Controls");
+
+            if (ImGui::InputFloat3("Position", cast(f32*, &camera.pos), "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                reset_frame = true;
+            }
+
+            ImGui::End();
+        }
+
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -751,6 +762,10 @@ int main(int argc, char** args) {
 
         frame_count++;
         acc_frame++;
+
+        if (reset_frame) {
+            acc_frame = 0;
+        }
     }
 
     ImGui_ImplOpenGL3_Shutdown();
@@ -830,7 +845,7 @@ int main_simple(int argc, char** args) {
         "layout (location = 1) in vec2 in_uv;\n"
         "out vec2 uv;\n"
         "void main() {\n"
-        "    gl_Position = vec4(pos.x, pos.y, 0, 1);\n"
+        "    gl_Position = Vector4(pos.x, pos.y, 0, 1);\n"
         "    uv = in_uv;\n"
         "}\n";
 
@@ -933,12 +948,12 @@ int main_simple(int argc, char** args) {
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cuda_screen_texture, 0));
 
     // In CUDA write to this buffer, we will map this to the OpenGL texture
-    vec4* cuda_screen_buffer;
-    CUDA_CHECK(cudaMalloc(&cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(vec4)));
+    Vector4* cuda_screen_buffer;
+    CUDA_CHECK(cudaMalloc(&cuda_screen_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(Vector4)));
 
     // ------------------------------------------------------------------------
 
-    PointCamera camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
+    PointCamera camera(Vector3(0, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, -1), SCREEN_WIDTH, SCREEN_HEIGHT, 600);
     Keymap keymap = Keymap::empty();
 
     int running = 1;
@@ -992,7 +1007,7 @@ int main_simple(int argc, char** args) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         CUDA_CHECK(cudaMemcpy2DToArray(cuda_screen_array, 0, 0, cuda_screen_buffer,
-                                       SCREEN_WIDTH * sizeof(vec4), SCREEN_WIDTH * sizeof(vec4), SCREEN_HEIGHT,
+                                       SCREEN_WIDTH * sizeof(Vector4), SCREEN_WIDTH * sizeof(Vector4), SCREEN_HEIGHT,
                                        cudaMemcpyDeviceToDevice));
 
         //fill_buffer(cuda_screen_buffer, camera, SCREEN_WIDTH, SCREEN_HEIGHT);

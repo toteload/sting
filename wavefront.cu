@@ -1,4 +1,4 @@
-#include "common.h"
+#include "dab/dab.h"
 #include "stingmath.h"
 #include "camera.h"
 #include "wavefront.h"
@@ -83,7 +83,7 @@ extern "C"
 __global__ void shade(wavefront::State* state, u32 current,
                       RenderTriangle const * triangles, 
                       Material const * materials,
-                      vec4* buffer) 
+                      Vector4* buffer) 
 {
     const u32 id = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -105,27 +105,27 @@ __global__ void shade(wavefront::State* state, u32 current,
 
     switch (material.type) {
     case Material::DIFFUSE: {
-        vec3 n;
+        Vector3 n;
 #if 1
         {
-            const vec3 tangent_space_normal = triangle_normal_lerp(unpack_normal(tri.n0), 
+            const Vector3 tangent_space_normal = triangle_normal_lerp(unpack_normal(tri.n0), 
                                                                    unpack_normal(tri.n1), 
                                                                    unpack_normal(tri.n2), 
                                                                    pathstate.u, pathstate.v);
-            vec3 t, b;
+            Vector3 t, b;
             build_orthonormal_basis(tri.face_normal, &t, &b);
             n = to_world_space(tangent_space_normal, tri.face_normal, t, b); 
         }
 #else
         n = tri.face_normal;
 #endif
-        const vec3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
+        const Vector3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
 
-        vec3 t, b;
+        Vector3 t, b;
         build_orthonormal_basis(n, &t, &b);
-        const vec3 scatter_direction = to_world_space(scatter_sample, n, t, b);
+        const Vector3 scatter_direction = to_world_space(scatter_sample, n, t, b);
 
-        const vec3 p = pathstate.ray_pos + pathstate.t * pathstate.ray_dir;
+        const Vector3 p = pathstate.ray_pos + pathstate.t * pathstate.ray_dir;
         const Ray extend_ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
 
         const u32 nextid = atomicAdd(&state->job_count[current ^ 1], 1);
@@ -135,7 +135,7 @@ __global__ void shade(wavefront::State* state, u32 current,
         state->states[current ^ 1][nextid].rng = pathstate.rng;
         state->states[current ^ 1][nextid].pixel_index = pathstate.pixel_index;
 
-        const vec3& brdf = material.color();
+        const Vector3& brdf = material.color();
         state->states[current ^ 1][nextid].throughput = pathstate.throughput * brdf;
     } break;
     case Material::EMISSIVE: {

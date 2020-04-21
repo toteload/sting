@@ -6,18 +6,18 @@
 #define VC_EXTRALEAN
 #include <Windows.h>
 #include <GL/gl.h>
-#include "glext.h"
+#include "ext/glext.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #define FAST_OBJ_IMPLEMENTATION
-#include "fast_obj.h"
+#include "ext/fast_obj.h"
 #pragma clang diagnostic pop
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "ext/stb_image.h"
 
-#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "gl_extension_loader.h"
+#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "porky_load.h"
 
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 

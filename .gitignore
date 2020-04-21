@@ -1,1 +1,6 @@
 *.exe
+imgui.ini
+*.ilk
+*.dll
+*.pdb
+.vs/

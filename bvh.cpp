@@ -1,20 +1,20 @@
 #include "bvh.h"
-#include "common.h"
+#include "dab/dab.h"
+
+constexpr u32 BVH_PARTITION_BIN_COUNT = 8;
+constexpr u32 BVH_MAX_PRIMITIVES_IN_LEAF = 8;
+constexpr u32 BVH_MAX_DEPTH = 64;
 
 #ifndef __CUDACC__
-const u32 BVH_PARTITION_BIN_COUNT = 8;
-const u32 BVH_MAX_PRIMITIVES_IN_LEAF = 8;
-const u32 BVH_MAX_DEPTH = 16;
-
 union alignas(16) BVHAABB {
     AABB bounds;
 
     struct {
-        alignas(16) vec3 bmin; u32 index;
-        alignas(16) vec3 bmax;
+        alignas(16) Vector3 bmin; u32 index;
+        alignas(16) Vector3 bmax;
     };
 
-    BVHAABB(vec3 bmin, vec3 bmax, u32 index) : bmin(bmin), index(index), bmax(bmax) { }
+    BVHAABB(Vector3 bmin, Vector3 bmax, u32 index) : bmin(bmin), index(index), bmax(bmax) { }
 };
 
 static_assert(sizeof(BVHAABB) == sizeof(AABB), "sizes should be the same");
@@ -77,14 +77,20 @@ PartitionResult partition(BVHAABB* aabbs, AABB node_bounds, u32 start, u32 end) 
 
 void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes, 
                      u32 start, u32 end, 
-                     u32 this_node, u32 depth) 
+                     u32 this_node, u32 depth,
+                     u32* bvh_max_depth_out, u32* bvh_max_primitives_out) 
 {
     const u32 count = end - start;
+
+    *bvh_max_depth_out = max(*bvh_max_depth_out, depth);
 
     if (count <= BVH_MAX_PRIMITIVES_IN_LEAF || depth == BVH_MAX_DEPTH) {
         // This is a leaf node
         nodes[this_node].count = count;
         nodes[this_node].left_first = start;
+
+        *bvh_max_primitives_out = max(*bvh_max_primitives_out, count);
+
         return;
     }
 
@@ -120,11 +126,13 @@ void build_recursive(BVHAABB* aabbs, std::vector<BVHNode>& nodes,
     nodes[left].bounds = left_bounds;
     nodes[left+1].bounds = right_bounds;
 
-    build_recursive(aabbs, nodes, start, mid, left,     depth + 1);
-    build_recursive(aabbs, nodes, mid,   end, left + 1, depth + 1);
+    build_recursive(aabbs, nodes, start, mid, left,     depth + 1, bvh_max_depth_out, bvh_max_primitives_out);
+    build_recursive(aabbs, nodes, mid,   end, left + 1, depth + 1, bvh_max_depth_out, bvh_max_primitives_out);
 }
 
-std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count) {
+std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count,
+                                             u32* bvh_depth_out, u32* bvh_max_primitives_out) 
+{
     std::vector<BVHAABB> aabbs;
     aabbs.reserve(triangle_count);
 
@@ -143,7 +151,9 @@ std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 tria
 
     nodes[0].bounds = root_bounds;
 
-    build_recursive(aabbs.data(), nodes, 0, triangle_count, 0, 0);
+    u32 bvh_depth = 0;
+    u32 bvh_max_primitives = 0;
+    build_recursive(aabbs.data(), nodes, 0, triangle_count, 0, 0, &bvh_depth, &bvh_max_primitives);
 
     if (nodes.size() > 1) {
         nodes[0].count = 0;
@@ -156,110 +166,24 @@ std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 tria
         triangles[i] = tmp[aabbs[i].index];
     }
 
+    *bvh_depth_out = bvh_depth;
+    *bvh_max_primitives_out = bvh_max_primitives;
+
     return nodes;
 }
-#endif
+#endif // ifndef __CUDACC__
 
 #ifdef __CUDACC__
-const u32 BVH_NO_HIT = UINT32_MAX;
-
-template<typename T, u32 Capacity>
-struct Stack {
-    T data[Capacity];
-    u32 top;
-
-    Stack() : top(0) { }
-    __device__ Stack(std::initializer_list<T> l) : top(l.size()) {
-        for (u32 i = 0; i < l.size(); i++) {
-            data[i] = l.begin()[i];
-        }
-    }
-
-    __device__ bool is_empty() const { return top == 0; }
-    u32 capacity() const { return Capacity; }
-    u32 size() const { return top; }
-    __device__ void push(T v) { data[top++] = v; }
-    __device__ T pop() { return data[--top]; }
-    T peek() const { return data[top-1]; }
-};
-
-__device__
-BVHInstanceIntersection bvh_intersect_instance_triangles(BVHNode const * instance_bvh, RenderInstance const * instances,
-                                                         BVHNode const * mesh_bvh,     RenderTriangle const * triangles,
-                                                         Ray ray)
-{
-    // Create a stack and initialize it with the root node
-    Stack<u32, 32> stack({ 0 });
-
-    const vec3 ray_inv_dir = ray.dir.inverse();
-
-    BVHTriangleIntersection best;
-    best.t = FLT_MAX;
-    best.id = BVH_NO_HIT;
-
-    u32 instance_id;
-
-    while (!stack.is_empty()) {
-        const BVHNode& node = instance_bvh[stack.pop()];
-
-        if (node.is_leaf()) {
-            for (u32 i = 0; i < node.count; i++) {
-                const RenderInstance& instance = instances[node.left_first + i]; 
-                const auto isect = bvh_intersect_triangles(mesh_bvh + instance.mesh.bvh_offset,
-                                                           triangles + instance.mesh.triangle_offset,
-                                                           ray);
-                if (isect.hit() && isect.t < best.t) {
-                    instance_id = node.left_first + i;
-                    best = isect;
-                }
-            }
-        } else {
-            const BVHNode& left  = instance_bvh[node.left_first];
-            const BVHNode& right = instance_bvh[node.left_first + 1];
-
-            f32 t_left, t_right;
-            const bool hit_left  = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
-            const bool hit_right = right.bounds.intersect(ray.pos, ray_inv_dir, &t_right);
-
-            if (hit_left && hit_right) {
-                if (t_left < t_right) {
-                    stack.push(node.left_first);
-                    stack.push(node.left_first + 1);
-                } else {
-                    stack.push(node.left_first + 1);
-                    stack.push(node.left_first);
-                }
-            } else {
-                if (hit_left)  { stack.push(node.left_first); }
-                if (hit_right) { stack.push(node.left_first + 1); }
-            }
-        }
-    }
-
-    if (best.id == BVH_NO_HIT) {
-        BVHInstanceIntersection isect;
-        isect.instance_id = BVH_NO_HIT;
-        return isect;
-    }
-
-    BVHInstanceIntersection isect;
-    isect.instance_id = instance_id;
-    isect.triangle_id = best.id + instances[instance_id].mesh.triangle_offset;
-    isect.t = best.t;
-    isect.u = best.u;
-    isect.v = best.v;
-
-    return isect;
-}
+constexpr u32 BVH_NO_HIT = UINT32_MAX;
 
 __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh, 
                                                            RenderTriangle const * triangles, 
                                                            Ray ray) 
 {
     // Create a stack and initialize it with the root node
-    Stack<u32, 16> stack({ 0 });
+    Stack<u32, BVH_MAX_DEPTH> stack({ 0 });
 
-    const vec3 ray_inv_dir = ray.dir.inverse();
+    const Vector3 ray_inv_dir = ray.dir.inverse();
 
     BVHTriangleIntersection best;
     best.t = FLT_MAX;
@@ -268,12 +192,15 @@ __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh,
     while (!stack.is_empty()) {
         const BVHNode& node = bvh[stack.pop()];
 
+        // Syncing threads here gives a nice, little speedup
+        __syncthreads();
+
         if (node.is_leaf()) {
             for (u32 i = 0; i < node.count; i++) {
                 const auto isect = triangle_intersect(ray, 
-                                                      triangles[node.left_first+i].v0, 
-                                                      triangles[node.left_first+i].v1, 
-                                                      triangles[node.left_first+i].v2);
+                                                      triangles[node.left_first + i].v0, 
+                                                      triangles[node.left_first + i].v1, 
+                                                      triangles[node.left_first + i].v2);
                 if (isect.hit && isect.t < best.t) {
                     best.id = node.left_first + i;
                     best.t  = isect.t;
@@ -282,15 +209,12 @@ __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh,
                 }
             }
         } else {
-            const BVHNode& left = bvh[node.left_first];
-            const BVHNode& right = bvh[node.left_first + 1];
-
             f32 t_left, t_right;
-            const bool hit_left = left.bounds.intersect(ray.pos, ray_inv_dir, &t_left);
-            const bool hit_right = right.bounds.intersect(ray.pos, ray_inv_dir, &t_right);
+            const bool hit_left  = bvh[node.left_first].bounds.intersect(ray.pos, ray_inv_dir, &t_left);
+            const bool hit_right = bvh[node.left_first + 1].bounds.intersect(ray.pos, ray_inv_dir, &t_right);
 
             if (hit_left && hit_right) {
-                if (t_left < t_right) {
+                if (t_left > t_right) {
                     stack.push(node.left_first);
                     stack.push(node.left_first + 1);
                 } else {
@@ -312,7 +236,7 @@ __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTr
 {
     Stack<u32, 32> stack({ 0 });
 
-    const vec3 ray_inv_dir = ray.dir.inverse();
+    const Vector3 ray_inv_dir = ray.dir.inverse();
 
     while (!stack.is_empty()) {
         const BVHNode& node = bvh[stack.pop()];

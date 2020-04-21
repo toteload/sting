@@ -4,13 +4,13 @@
 #include "stingmath.h"
 
 struct HitRecord {
-    vec3 pos;
+    Vector3 pos;
     float t;
-    vec3 normal;
+    Vector3 normal;
 };
 
 struct PointCamera {
-    vec3 pos;
+    Vector3 pos;
 
     float inclination; // range [0, PI)
     float azimuth; // range [0, 2*PI)
@@ -18,16 +18,16 @@ struct PointCamera {
     float width, height; 
     float plane_distance;
 
-    vec3 u, v, w;
+    Vector3 u, v, w;
 
-    PointCamera(vec3 pos, vec3 up, vec3 at, float width, float height, float plane_distance) {
-        const vec3 forward = (at - pos).normalize();
+    PointCamera(Vector3 pos, Vector3 up, Vector3 at, float width, float height, float plane_distance) {
+        const Vector3 forward = (at - pos).normalized();
 
         cartesian_to_spherical(forward, &inclination, &azimuth);
 
         w = forward;
-        u = cross(w, up).normalize();
-        v = cross(w, u).normalize();
+        u = cross(w, up).normalized();
+        v = cross(w, u).normalized();
 
         this->pos = pos;
         this->width = width;
@@ -43,8 +43,8 @@ struct PointCamera {
         //if (azimuth < 0.0f) { azimuth += M_2_PI; }
 
         w = spherical_to_cartesian(inclination, azimuth);
-        u = cross(w, vec3(0.0f, 1.0f, 0.0f)).normalize();
-        v = cross(w, u).normalize();
+        u = cross(w, vec3(0.0f, 1.0f, 0.0f)).normalized();
+        v = cross(w, u).normalized();
     }
 
     // uu and vv are in range (-1.0f, 1.0f)
@@ -52,9 +52,9 @@ struct PointCamera {
         const float px = 0.5f * uu * width;
         const float py = 0.5f * vv * height;
 
-        const vec3 p = plane_distance * w + px * u + py * v;
+        const Vector3 p = plane_distance * w + px * u + py * v;
 
-        return Ray(pos, p.normalize());
+        return Ray(pos, p.normalized());
     }
 };
 
