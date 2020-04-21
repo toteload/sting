@@ -234,13 +234,16 @@ __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh,
 __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, RenderTriangle const * triangles, 
                                                    Ray ray) 
 {
-    Stack<u32, 32> stack({ 0 });
+    Stack<u32, BVH_MAX_DEPTH> stack({ 0 });
 
     const Vector3 ray_inv_dir = ray.dir.inverse();
 
     while (!stack.is_empty()) {
         const BVHNode& node = bvh[stack.pop()];
-
+     
+        // Syncing threads here gives a nice, little speedup
+        __syncthreads();
+                
         if (node.is_leaf()) {
             for (u32 i = 0; i < node.count; i++) {
                 const auto isect = triangle_intersect(ray, 

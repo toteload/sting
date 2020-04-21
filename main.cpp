@@ -195,24 +195,24 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuDeviceGet(&device, 0));
     CUDA_CHECK(cuCtxCreate(&context, 0, device));
 
-    CUmodule fillimage, wavefrontptx;
-    CUDA_CHECK(cuModuleLoad(&fillimage, "fillimage.ptx"));
-    CUDA_CHECK(cuModuleLoad(&wavefrontptx, "wavefront.ptx"));
+    CUmodule pathtrace_ptx, wavefront_ptx;
+    CUDA_CHECK(cuModuleLoad(&pathtrace_ptx, "pathtrace.ptx"));
+    CUDA_CHECK(cuModuleLoad(&wavefront_ptx, "wavefront.ptx"));
 
     CUfunction render_bruteforce, render_nee, accumulate, blit_to_screen;
-    CUDA_CHECK(cuModuleGetFunction(&render_nee, fillimage, "nee_test"));
-    CUDA_CHECK(cuModuleGetFunction(&render_bruteforce, fillimage, "test_001"));
-    CUDA_CHECK(cuModuleGetFunction(&accumulate, fillimage, "accumulate_pass"));
-    CUDA_CHECK(cuModuleGetFunction(&blit_to_screen, fillimage, "blit_to_screen"));
+    CUDA_CHECK(cuModuleGetFunction(&render_nee,        pathtrace_ptx, "sample_nee"));
+    CUDA_CHECK(cuModuleGetFunction(&render_bruteforce, pathtrace_ptx, "sample_bruteforce"));
+    CUDA_CHECK(cuModuleGetFunction(&accumulate,        pathtrace_ptx, "accumulate_pass"));
+    CUDA_CHECK(cuModuleGetFunction(&blit_to_screen,    pathtrace_ptx, "blit_to_screen"));
 
     CUfunction reset, generate_primary_rays, extend_rays, shade;
-    CUDA_CHECK(cuModuleGetFunction(&reset, wavefrontptx, "reset"));
-    CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays, wavefrontptx, "generate_primary_rays"));
-    CUDA_CHECK(cuModuleGetFunction(&extend_rays, wavefrontptx, "extend_rays"));
-    CUDA_CHECK(cuModuleGetFunction(&shade, wavefrontptx, "shade"));
+    CUDA_CHECK(cuModuleGetFunction(&reset,                 wavefront_ptx, "reset"));
+    CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays, wavefront_ptx, "generate_primary_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&extend_rays,           wavefront_ptx, "extend_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&shade,                 wavefront_ptx, "shade"));
 
     CUsurfref screen_surface;
-    cuModuleGetSurfRef(&screen_surface, fillimage, "screen_surface");
+    cuModuleGetSurfRef(&screen_surface, pathtrace_ptx, "screen_surface");
 
     // CUDA/OpenGL interop setup
     // --------------------------------------------------------------------- //

@@ -33,8 +33,8 @@ stuff with normals:
 
 sting 0.2.1
 -------------------------------------------------------------------------------
-[ ] give the different rendering functions better names in fillimage.cu
-[ ] rename fillimage.cu
+[x] give the different rendering functions better names in fillimage.cu
+[x] rename fillimage.cu
 [ ] verify the output range of random_u32_max
 [ ] ray struct now also contains t_min and t_max, change intersecting
     functions to actually use these if necessary, intersect codes don't need
@@ -58,19 +58,18 @@ The BVH optimization update!
 Just stuff I may want to add or change but not yet planned in
 -------------------------------------------------------------------------------
 [ ] CUDA hot reloading
-[ ] normal packing and unpacking
+[x] normal packing and unpacking
+    - very basic version at least :)
 [ ] multiple importance sampling
 [ ] nested instancing (could be cool :D)
-[x] add functionality to have the render buffer size and the screen size
-    to be different dimensions
-[ ] improve the camera with fov instead of plane distance, is a bit more
-    natural to setup like that
+[x] add functionality to have the render buffer size and the screen size to be different dimensions
+[ ] improve the camera with fov instead of plane distance, is a bit more natural to setup like that
 [ ] more materials!
 [ ] DOF camera
 [ ] variance reduction techniques: russian roulette, next event estimation
+    [x] NEE
 [ ] add Disney BRDF (looks pretty?)
-[ ] random number generation on the GPU or some sort of pseudo random sampling
-    BLUE NOISE!
+[ ] random number generation on the GPU or some sort of pseudo random sampling: BLUE NOISE!
 [ ] also take the skydome into consideration as a direct light for nee, this could
     be a bit tricky but it is possible. there is also some text about this in
     PBRT book.

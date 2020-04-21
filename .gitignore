@@ -3,4 +3,9 @@ imgui.ini
 *.ilk
 *.dll
 *.pdb
+*.ptx
+*.obj
+porky_load.h
+porky_load.cpp
 .vs/
+ylitie2017hpg-paper.pdf

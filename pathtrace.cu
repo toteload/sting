@@ -133,10 +133,6 @@ __device__ Vector3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle co
         const BVHTriangleIntersection isect = bvh_intersect_triangles(bvh, triangles, ray);
 
         if (!isect.hit()) {
-#if 1
-            emission += throughput;
-            break;
-#else
             //Sample the skybox
             f32 inclination, azimuth;
             cartesian_to_spherical(ray.dir, &inclination, &azimuth);
@@ -144,9 +140,8 @@ __device__ Vector3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle co
             const u32 ui = __float2uint_rd((azimuth / (2.0f * M_PI) + 0.5f) * 4095.0f + 0.5f);
             const u32 vi = __float2uint_rd((inclination / M_PI) * 2047.0f + 0.5f);
             const Vector4 sky = skybox[vi * 4096 + ui];
-            emission += throughput * Vector3(sky.r, sky.g, sky.b);
+            emission += throughput * vec3(sky.r, sky.g, sky.b);
             break;
-#endif
         }
 
         const RenderTriangle& tri = triangles[isect.id];
@@ -192,9 +187,104 @@ __device__ Vector3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle co
     return emission;
 }
 
+extern "C"
+__global__ void sample_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
+                           u32 const * lights, u32 light_count,
+                           Material const * materials,
+                           PointCamera camera, Vector4 const * skybox,
+                           Vector4* buffer, u32 width, u32 height, u32 framenum)
+{
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    const int id = y * width + x;
+    const u32 seed = (id + framenum * PRIME0) * PRIME1;
+    RngXor32 rng(seed);
+
+    // nx and ny are in range (-1.0f, 1.0f)
+    const float nx = (2.0f * float(x) + rng.random_f32()) / width  - 1.0f;
+    const float ny = (2.0f * float(y) + rng.random_f32()) / height - 1.0f;
+
+    const Ray ray = camera.create_ray(nx, ny);
+
+    const Vector3 c = pathtrace_nee(bvh, triangles, materials, lights, light_count, ray, rng, skybox);
+    
+    buffer[id] = vec4(c, 1.0f);
+}
+
+extern "C"
+__global__ void sample_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, Material const * materials,
+                                  PointCamera camera, Vector4 const * skybox,
+                                  Vector4* buffer, u32 width, u32 height, u32 framenum)
+{
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    const int id = y * width + x;
+
+    const u32 seed = (id + framenum * PRIME0) * PRIME1;
+    RngXor32 rng(seed);
+
+    // nx and ny are in range (-1.0f, 1.0f)
+    const float nx = (2.0f * float(x) + rng.random_f32()) / width  - 1.0f;
+    const float ny = (2.0f * float(y) + rng.random_f32()) / height - 1.0f;
+
+    const Ray ray = camera.create_ray(nx, ny);
+
+    const Vector3 c = pathtrace_bruteforce_2(bvh, triangles, materials, ray, rng, skybox);
+
+    buffer[id] = vec4(c, 1.0f);
+}
+     
+extern "C"
+__global__ void accumulate_pass(Vector4* frame_buffer, Vector4* accumulator, Vector4* screen_buffer, 
+                                u32 width, u32 height, u32 acc_frame) 
+{
+    const u32 x = blockIdx.x * blockDim.x + threadIdx.x;    
+    const u32 y = blockIdx.y * blockDim.y + threadIdx.y;    
+
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    const u32 id = y * width + x;
+
+    if (acc_frame == 0) {
+        accumulator[id] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    accumulator[id] += frame_buffer[id];
+    screen_buffer[id] = accumulator[id] / (cast(f32, acc_frame + 1));
+}
+
+extern "C"
+__global__ void blit_to_screen(Vector4* buffer, uint32_t width, uint32_t height) {
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    const int id = y * width + x;
+
+    surf2Dwrite<Vector4>(buffer[id], screen_surface, x * sizeof(Vector4), y, cudaBoundaryModeZero);
+}
+ 
+// The function below I keep for documentation or something like that. It uses
+// bruteforce pathtracing just like the other not commented out function, but 
+// it doesn't make use of cosine-weighted sampling for simplicity.
 #if 0
 __device__ Vector3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, 
-                                     Ray ray, RngXor32 rng, Vector4 const * skybox) 
+                                        Ray ray, RngXor32 rng, Vector4 const * skybox) 
 {
     Vector3 acc = Vector3(1.0f);
 
@@ -229,6 +319,8 @@ __device__ Vector3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle cons
             const Vector3 scatter_direction = to_world_space(scatter_sample, n, t, b);
 
 #if 1
+            // The actual brdf calculation, but the Pi cancels out. This is kept
+            // for documentation purposes.
             const Vector3 brdf = (1.0f / M_PI) * tri.color();
             acc *= 2.0f * M_PI * brdf * dot(scatter_direction, n);
 #else
@@ -252,174 +344,4 @@ __device__ Vector3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle cons
     }
 }
 #endif
-
-extern "C"
-__global__ void accumulate_pass(Vector4* frame_buffer, Vector4* accumulator, Vector4* screen_buffer, 
-                                u32 width, u32 height, u32 acc_frame) 
-{
-    const u32 x = blockIdx.x * blockDim.x + threadIdx.x;    
-    const u32 y = blockIdx.y * blockDim.y + threadIdx.y;    
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const u32 id = y * width + x;
-
-    if (acc_frame == 0) {
-        accumulator[id] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    }
-
-    accumulator[id] += frame_buffer[id];
-    screen_buffer[id] = accumulator[id] / (cast(f32, acc_frame + 1));
-}
-
-__global__ void intersect_test(BVHNode const * bvh, RenderTriangle const * triangles, 
-                               PointCamera camera, Vector4* buffer, u32 width, u32 height)
-{
-    const int x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const int id = y * width + x;
-
-    // nx and ny are in range (-1.0f, 1.0f)
-    const float nx = (2.0f * float(x) + 0.5f) / width  - 1.0f;
-    const float ny = (2.0f * float(y) + 0.5f) / height - 1.0f;
-
-    const Ray ray = camera.create_ray(nx, ny);
-
-    const auto isect = bvh_intersect_triangles(bvh, triangles, ray);
-
-    if (isect.hit()) {
-        buffer[id] = vec4(vec3(1.0f), 1.0f);
-    } else {
-        buffer[id] = vec4(vec3(0.0f), 1.0f);
-    }
-}
-
-extern "C"
-__global__ void nee_test(BVHNode const * bvh, RenderTriangle const * triangles, 
-                         u32 const * lights, u32 light_count,
-                         Material const * materials,
-                         PointCamera camera, Vector4 const * skybox,
-                         Vector4* buffer, u32 width, u32 height, u32 framenum)
-{
-    const int x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const int id = y * width + x;
-    const u32 seed = (id + framenum * PRIME0) * PRIME1;
-    RngXor32 rng(seed);
-
-    // nx and ny are in range (-1.0f, 1.0f)
-    const float nx = (2.0f * float(x) + rng.random_f32()) / width  - 1.0f;
-    const float ny = (2.0f * float(y) + rng.random_f32()) / height - 1.0f;
-
-    const Ray ray = camera.create_ray(nx, ny);
-
-    const Vector3 c = pathtrace_nee(bvh, triangles, materials, lights, light_count, ray, rng, skybox);
-    
-    buffer[id] = vec4(c, 1.0f);
-}
-
-extern "C"
-__global__ void test_001(BVHNode const * bvh, RenderTriangle const * triangles, Material const * materials,
-                         PointCamera camera, Vector4 const * skybox,
-                         Vector4* buffer, u32 width, u32 height, u32 framenum)
-{
-    const int x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const int id = y * width + x;
-
-    const u32 seed = (id + framenum * PRIME0) * PRIME1;
-    RngXor32 rng(seed);
-
-    // nx and ny are in range (-1.0f, 1.0f)
-    const float nx = (2.0f * float(x) + rng.random_f32()) / width  - 1.0f;
-    const float ny = (2.0f * float(y) + rng.random_f32()) / height - 1.0f;
-
-    const Ray ray = camera.create_ray(nx, ny);
-
-    const Vector3 c = pathtrace_bruteforce_2(bvh, triangles, materials, ray, rng, skybox);
-
-    buffer[id] = vec4(c, 1.0f);
-}
-
-extern "C"
-__global__ void blit_to_screen(Vector4* buffer, uint32_t width, uint32_t height) {
-    const int x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x >= width || y >= height) {
-        return;
-    }
-
-    const int id = y * width + x;
-
-#if 1
-    surf2Dwrite<Vector4>(buffer[id], screen_surface, x * sizeof(Vector4), y, cudaBoundaryModeZero);
-#else
-    surf2Dwrite<Vector4>(Vector4(1.0f, 0.0f, 0.0f, 1.0f), screen_surface, x * sizeof(Vector4), y, cudaBoundaryModeZero);
-#endif
-}
-
-// ----------------------------------------------------------------------------
-#if 0
-void accumulate(Vector4* frame_buffer, Vector4* accumulator, Vector4* screen_buffer, u32 width, u32 height, u32 acc_frame) {
-    dim3 threads = dim3(16, 16, 1);
-    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-    accumulate_pass<<<blocks, threads>>>(frame_buffer, accumulator, screen_buffer, width, height, acc_frame);
-}
-
-void render(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
-            Vector4 const * skybox,
-            Vector4* buffer, u32 width, u32 height, u32 framenum) 
-{
-    dim3 threads = dim3(16, 16, 1);
-    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-    test_001<<<blocks, threads>>>(bvh, triangles, camera, skybox, buffer, width, height, framenum);
-    //intersect_test<<<blocks, threads>>>(bvh, triangles, camera, buffer, width, height);
-}
-
-void render_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
-                u32 const * lights, u32 light_count,
-                PointCamera camera, Vector4 const * skybox,
-                Vector4* buffer, u32 width, u32 height, u32 framenum) 
-{
-    dim3 threads = dim3(16, 16, 1);
-    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-    nee_test<<<blocks, threads>>>(bvh, triangles, lights, light_count, camera, skybox, buffer, width, height, framenum);
-}
-
-void render_normal(BVHNode const * bvh, RenderTriangle const * triangles, PointCamera camera, 
-                   Vector4* buffer, u32 width, u32 height, u32 framenum) 
-{
-    dim3 threads = dim3(16, 16, 1);
-    dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-    normal_test_pass<<<blocks, threads>>>(bvh, triangles, camera, buffer, width, height, framenum);
-}
-
-void render_buffer_to_screen(cudaArray_const_t array, Vector4* screen_buffer, uint32_t width, uint32_t height) {
-    const dim3 threads = dim3(16, 16, 1);
-    const dim3 blocks = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y, 1);
-
-    cudaBindSurfaceToArray(screen_surface, array);
-    blit_to_screen<<<blocks, threads>>>(screen_buffer, width, height);
-
-    // Need to synchronize here otherwise it is very choppy
-    cudaDeviceSynchronize();
-}
-#endif
+            

@@ -106,19 +106,16 @@ __global__ void shade(wavefront::State* state, u32 current,
     switch (material.type) {
     case Material::DIFFUSE: {
         Vector3 n;
-#if 1
         {
             const Vector3 tangent_space_normal = triangle_normal_lerp(unpack_normal(tri.n0), 
-                                                                   unpack_normal(tri.n1), 
-                                                                   unpack_normal(tri.n2), 
-                                                                   pathstate.u, pathstate.v);
+                                                                      unpack_normal(tri.n1), 
+                                                                      unpack_normal(tri.n2), 
+                                                                      pathstate.u, pathstate.v);
             Vector3 t, b;
             build_orthonormal_basis(tri.face_normal, &t, &b);
             n = to_world_space(tangent_space_normal, tri.face_normal, t, b); 
         }
-#else
-        n = tri.face_normal;
-#endif
+
         const Vector3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
 
         Vector3 t, b;
