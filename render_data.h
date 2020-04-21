@@ -27,7 +27,12 @@ struct alignas(16) RenderTriangle {
     RenderTriangle(Vector3 v0, Vector3 v1, Vector3 v2, u32 material_id);
     RenderTriangle(Vector3 v0, Vector3 v1, Vector3 v2, Vector3 n0, Vector3 n1, Vector3 n2, u32 material_id);
 };
-                          
+
+struct alignas(16) RenderSphere {
+    Vector3 pos; f32 radius;
+    u32 material_id; u32 pad[3];
+};
+
 inline RenderTriangle::RenderTriangle(Vector3 v0, Vector3 v1, Vector3 v2, u32 material_id) :
     v0(v0), n0(pack_normal(vec3(0.0f, 1.0f, 0.0f))),
     v1(v1), n1(pack_normal(vec3(0.0f, 1.0f, 0.0f))),

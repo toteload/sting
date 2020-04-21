@@ -26,26 +26,61 @@ struct alignas(16) BVHNode {
         };
     };
 
-    __device__ bool is_leaf() const { return count > 0; }
+    __host__ __device__ bool is_leaf() const { return count > 0; }
 };
-
+ 
 // Just some sanity checking
 static_assert(offsetof(BVHNode, bmin) == 0, "");
 static_assert(offsetof(BVHNode, count) == 12, "");
 static_assert(offsetof(BVHNode, bmax) == 16, "");
 static_assert(offsetof(BVHNode, left_first) == 28, "");
 static_assert(sizeof(BVHNode) == 32, "");
-                                                          
+        
+struct alignas(16) CBVHData {
+    Vector3 origin;
+    i8 ex, ey, ez; u8 pad;
+};
+ 
+struct alignas(16) CBVHNode {
+    u16 bminx, bminy, bminz; // 6 bytes
+    u16 bmaxx, bmaxy, bmaxz; // 6 bytes
+    u32 meta;                // 4 bytes
+
+    __device__ bool is_leaf() const { return (meta & 0xf0000000) != 0; }
+    __device__ u32  count()   const { return meta >> 28; }
+    __device__ u32  index()   const { return (meta & 0x0fffffff); }
+    __device__ AABB bounds(CBVHData cbvh) const {
+        const f32 fex = powf(2.0f, cbvh.ex);
+        const f32 fey = powf(2.0f, cbvh.ey);
+        const f32 fez = powf(2.0f, cbvh.ez);
+
+        const Vector3 bmin = cbvh.origin + vec3(fex*bminx, fey*bminy, fez*bminz);
+        const Vector3 bmax = cbvh.origin + vec3(fex*bmaxx, fey*bmaxy, fez*bmaxz);
+
+        return { bmin, bmax, };
+    }
+}; // 16 bytes
+       
+struct CBVH {
+    CBVHData data;
+    std::vector<CBVHNode> nodes;
+};
+                                                  
 #ifndef __CUDACC__
 // NOTE
 // This will reorder the `triangles` array
 std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count, 
                                              u32* bvh_depth_out, u32* bvh_max_primitives_out);
+
+std::vector<BVHNode> build_bvh_for_spheres(RenderSphere* spheres, u32 sphere_count,
+                                           u32* bvh_depth_out, u32* bvh_max_primitives_out);
+ 
+CBVH compress_bvh(std::vector<BVHNode> bvh);
 #endif
 
 #ifdef __CUDACC__
 struct alignas(16) BVHTriangleIntersection {
-    u32 id; // the most significant bit will be set if there is no hit
+    u32 id;
     f32 t, u, v;
 
     __device__ bool hit() const { return id != UINT32_MAX; }
@@ -58,4 +93,25 @@ __device__ BVHTriangleIntersection bvh_intersect_triangles(BVHNode const * bvh,
 __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh, 
                                                    RenderTriangle const * triangles, 
                                                    Ray ray);
+
+struct BVHSphereIntersection {
+    u32 id;
+    f32 t;
+
+    __device__ bool hit() const { return id != UINT32_MAX; }
+};
+
+__device__ BVHSphereIntersection bvh_intersect_sphers(BVHNode const * bvh,
+                                                      RenderSphere const * spheres,
+                                                      Ray ray);
+
+__device__ bool bvh_intersect_spheres_shadowcast(BVHNode const * bvh,
+                                                 RenderSphere const * spheres,
+                                                 Ray ray);
+
+__device__ BVHTriangleIntersection cbvh_intersect_triangles(CBVHData cbvh,
+                                                            CBVHNode const * cnodes,
+                                                            RenderTriangle const * triangles,
+                                                            Ray ray);
+
 #endif

@@ -80,6 +80,26 @@ __global__ void extend_rays(wavefront::State* state, u32 current,
 }
 
 extern "C"
+__global__ void extend_rays_compressed(wavefront::State* state, u32 current,
+                                       CBVHData cbvh, CBVHNode const * nodes,
+                                       RenderTriangle const * triangles)
+{
+    const u32 id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (id >= state->job_count[current]) {
+        return;
+    }
+
+    const Ray ray(state->states[current][id].ray_pos, state->states[current][id].ray_dir);
+    const BVHTriangleIntersection isect = cbvh_intersect_triangles(cbvh, nodes, triangles, ray);
+
+    state->states[current][id].t = isect.t;
+    state->states[current][id].u = isect.u;
+    state->states[current][id].v = isect.v;
+    state->states[current][id].triangle_id = isect.id;
+}
+
+extern "C"
 __global__ void shade(wavefront::State* state, u32 current,
                       RenderTriangle const * triangles, 
                       Material const * materials,

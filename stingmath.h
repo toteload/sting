@@ -1,5 +1,4 @@
-#ifndef GUARD_STINGMATH_H
-#define GUARD_STINGMATH_H
+#pragma once
 
 #include "dab/dab.h"
 
@@ -551,19 +550,23 @@ TriangleIntersection triangle_intersect(Ray ray, Vector3 v0, Vector3 v1, Vector3
 // functions above :)
 // ----------------------------------------------------------------------------
 
-inline bool sphere_intersect(Ray ray, Vector3 center, f32 radius, f32* t_out) {
+struct SphereIntersection {
+    f32 t; u32 hit;
+};
+
+__device__ inline SphereIntersection sphere_intersect(Ray ray, Vector3 center, f32 radius) {
     const Vector3 o = ray.pos - center;
     const f32 b = dot(o, ray.dir);
     const f32 c = dot(o, o) - radius * radius;
 
     if (b > 0.0f && c > 0.0f) {
-        return false;
+        return { 0.0f, 0, };
     }
 
     const f32 d = b * b - c;
 
     if (d < 0.0f) {
-        return false;
+        return { 0.0f, 0, };
     }
 
     const f32 ds = sqrtf(d);
@@ -580,21 +583,19 @@ inline bool sphere_intersect(Ray ray, Vector3 center, f32 radius, f32* t_out) {
         t_far = t1; 
     }
 
-    // If t_far is smaller than 0, then t_near is also smaller than 0 so
-    // both are negative which means that the sphere intersection is behind
-    // us.
+    // If t_far is smaller than 0, then t_near is also smaller than 0 so both 
+    // are negative which means that the sphere intersection is behind us.
     if (t_far < 0.0f) { 
-        return false;
+        return { 0.0f, 0, };
     }
 
     const f32 t_closest = (t_near < 0.0f) ? t_far : t_near;
 
     // NOTE
     // for now just report a true hit if at least one of the t is positive
-    // this could also mean we are inside the sphere however.
-    *t_out = t_closest;
+    // if one of the t is positive and one of the t is negative it means we are
+    // inside the sphere, this might be something you also want to return, but
+    // currently we do not.
 
-    return true;
+    return { t_closest, 1, };
 }
-
-#endif // GUARD_STINGMATH_H

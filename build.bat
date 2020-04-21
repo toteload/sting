@@ -1,7 +1,7 @@
 @echo off
 
 :: build the CUDA files
-nvcc -O3 -ptx -lineinfo -IZ:\ -Xcompiler "/W4 /MD /Oi /O2 /fp:fast" -c pathtrace.cu
+::nvcc -O3 -ptx -lineinfo -IZ:\ -Xcompiler "/W4 /MD /Oi /O2 /fp:fast" -c pathtrace.cu
 nvcc -O3 -ptx -lineinfo -IZ:\ -Xcompiler "/W4 /MD /Oi /O2 /fp:fast" -c wavefront.cu
 
 python porky.py

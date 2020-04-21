@@ -151,8 +151,8 @@ int main(int argc, char** args) {
     Settings settings = {
         .window_width  = 1920/2,
         .window_height = 1080/2,
-        .buffer_width  = 1920/4,
-        .buffer_height = 1080/4,
+        .buffer_width  = 1920/3,
+        .buffer_height = 1080/3,
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -205,11 +205,12 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuModuleGetFunction(&accumulate,        pathtrace_ptx, "accumulate_pass"));
     CUDA_CHECK(cuModuleGetFunction(&blit_to_screen,    pathtrace_ptx, "blit_to_screen"));
 
-    CUfunction reset, generate_primary_rays, extend_rays, shade;
-    CUDA_CHECK(cuModuleGetFunction(&reset,                 wavefront_ptx, "reset"));
-    CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays, wavefront_ptx, "generate_primary_rays"));
-    CUDA_CHECK(cuModuleGetFunction(&extend_rays,           wavefront_ptx, "extend_rays"));
-    CUDA_CHECK(cuModuleGetFunction(&shade,                 wavefront_ptx, "shade"));
+    CUfunction reset, generate_primary_rays, extend_rays, extend_rays_compressed, shade;
+    CUDA_CHECK(cuModuleGetFunction(&reset,                  wavefront_ptx, "reset"));
+    CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays,  wavefront_ptx, "generate_primary_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&extend_rays,            wavefront_ptx, "extend_rays"));
+    CUDA_CHECK(cuModuleGetFunction(&extend_rays_compressed, wavefront_ptx, "extend_rays_compressed"));
+    CUDA_CHECK(cuModuleGetFunction(&shade,                  wavefront_ptx, "shade"));
 
     CUsurfref screen_surface;
     cuModuleGetSurfRef(&screen_surface, pathtrace_ptx, "screen_surface");
@@ -340,10 +341,22 @@ int main(int argc, char** args) {
 #endif
 
     printf("%llu RenderTriangles created...\n", triangles.size());
-    
+
+    const u64 frequency = SDL_GetPerformanceFrequency();
+
+    const u64 start_time = SDL_GetPerformanceCounter();
     u32 bvh_depth, max_primitives;
     std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size(), &bvh_depth, &max_primitives);
+    const u64 end_time = SDL_GetPerformanceCounter();
+ 
+    printf("Created %llu bvh nodes in %f ms...\n", bvh.size(), 1000 * cast(f32, end_time - start_time) / frequency);
+    printf("BVH depth %d, max triangles in leaf %d\n", bvh_depth, max_primitives);
 
+    const u64 compression_start = SDL_GetPerformanceCounter();
+    CBVH cbvh = compress_bvh(bvh);
+    const u64 compression_end = SDL_GetPerformanceCounter();
+    printf("Compressed bvh in %f ms...\n", 1000 * cast(f32, compression_end - compression_start) / frequency);
+    
 #if 0
     std::vector<u32> lights;
     for (u32 i = 0; i < triangles.size(); i++) {
@@ -354,18 +367,17 @@ int main(int argc, char** args) {
     }
 #endif
 
-    printf("Created %llu bvh nodes...\n", bvh.size());
-    printf("BVH depth %d, max triangles in leaf %d\n", bvh_depth, max_primitives);
-
-    CUdeviceptr gpu_triangles, gpu_bvh, gpu_materials;//, gpu_lights;
-    CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size() * sizeof(RenderTriangle)));
-    CUDA_CHECK(cuMemAlloc(&gpu_bvh, bvh.size() * sizeof(BVHNode)));
-    CUDA_CHECK(cuMemAlloc(&gpu_materials, materials.size() * sizeof(Material)));
+    CUdeviceptr gpu_triangles, gpu_bvh, gpu_cbvh, gpu_materials;//, gpu_lights;
+    CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size()  * sizeof(RenderTriangle)));
+    CUDA_CHECK(cuMemAlloc(&gpu_bvh,       bvh.size()        * sizeof(BVHNode)));
+    CUDA_CHECK(cuMemAlloc(&gpu_cbvh,      cbvh.nodes.size() * sizeof(CBVHNode)));
+    CUDA_CHECK(cuMemAlloc(&gpu_materials, materials.size()  * sizeof(Material)));
     //cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
 
-    CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(), triangles.size() * sizeof(RenderTriangle)));
-    CUDA_CHECK(cuMemcpyHtoD(gpu_bvh, bvh.data(), bvh.size() * sizeof(BVHNode)));
-    CUDA_CHECK(cuMemcpyHtoD(gpu_materials, materials.data(), materials.size() * sizeof(Material)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(),  triangles.size()  * sizeof(RenderTriangle)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_bvh,       bvh.data(),        bvh.size()        * sizeof(BVHNode)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_cbvh,      cbvh.nodes.data(), cbvh.nodes.size() * sizeof(CBVHNode)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_materials, materials.data(),  materials.size()  * sizeof(Material)));
     //cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
 
     // Skybox loading
@@ -424,7 +436,6 @@ int main(int argc, char** args) {
     uint64_t frame_count = 0;
     u32 acc_frame = 0;
 
-    const u64 frequency = SDL_GetPerformanceFrequency();
     u64 previous_counter = SDL_GetPerformanceCounter();
 
     u32 rendermethod = 0;
@@ -637,11 +648,12 @@ int main(int argc, char** args) {
             void* extend_rays_params[] = {
                 &wavefront_state, 
                 &current, 
-                &gpu_bvh, 
+                &cbvh.data,
+                &gpu_cbvh, 
                 &gpu_triangles,
             };
 
-            CUDA_CHECK(cuLaunchKernel(extend_rays, 
+            CUDA_CHECK(cuLaunchKernel(extend_rays_compressed, 
                                       grid_x, 1, 1, 
                                       block_x, 1, 1, 
                                       0, 
