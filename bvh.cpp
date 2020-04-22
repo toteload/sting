@@ -4,7 +4,7 @@
 
 constexpr u32 BVH_PARTITION_BIN_COUNT = 8;
 constexpr u32 BVH_MAX_PRIMITIVES_IN_LEAF = 8;
-constexpr u32 BVH_MAX_DEPTH = 64;
+constexpr u32 BVH_MAX_DEPTH = 32;
 
 #ifndef __CUDACC__
 union alignas(16) BVHAABB {
@@ -187,14 +187,13 @@ std::vector<BVHNode> build_bvh_for_spheres(RenderSphere* spheres, u32 sphere_cou
 CBVH compress_bvh(std::vector<BVHNode> bvh) {
     const Vector3 origin = bvh[0].bounds.bmin;
 
-    // Maybe this can be made faster by extracting the exponent bits from the float directly
-    const i8 ex = cast(u8, ceil(log2((bvh[0].bounds.bmax.x - bvh[0].bounds.bmin.x) / 65535.0f)));
-    const i8 ey = cast(u8, ceil(log2((bvh[0].bounds.bmax.x - bvh[0].bounds.bmin.x) / 65535.0f)));
-    const i8 ez = cast(u8, ceil(log2((bvh[0].bounds.bmax.x - bvh[0].bounds.bmin.x) / 65535.0f)));
+    const u8 ex = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.x - bvh[0].bounds.bmin.x) / 65535.0f)));
+    const u8 ey = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.y - bvh[0].bounds.bmin.y) / 65535.0f)));
+    const u8 ez = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.z - bvh[0].bounds.bmin.z) / 65535.0f)));
 
-    const f32 fex = powf(2.0f, ex);
-    const f32 fey = powf(2.0f, ey);
-    const f32 fez = powf(2.0f, ez);
+    const f32 fex = Float32(0, ex, 0).as_f32();
+    const f32 fey = Float32(0, ey, 0).as_f32();
+    const f32 fez = Float32(0, ez, 0).as_f32();
 
     std::vector<CBVHNode> cbvh;
     cbvh.reserve(bvh.size());
@@ -445,7 +444,7 @@ __device__ BVHTriangleIntersection cbvh_intersect_triangles(CBVHData cbvh_data,
                                                             Ray ray)
 {
     // Create a stack and initialize it with the root node
-    Stack<u32, BVH_MAX_DEPTH*2> stack({ 0 });
+    Stack<u32, BVH_MAX_DEPTH> stack({ 0 });
 
     const Vector3 ray_inv_dir = ray.dir.inverse();
 
@@ -475,21 +474,20 @@ __device__ BVHTriangleIntersection cbvh_intersect_triangles(CBVHData cbvh_data,
             }
         } else {
             f32 t_left, t_right;
-            const bool hit_left  = cbvh[id]  .bounds(cbvh_data).intersect(ray.pos, ray_inv_dir, &t_left);
-            const bool hit_right = cbvh[id+1].bounds(cbvh_data).intersect(ray.pos, ray_inv_dir, &t_right);
+            const u32 hit_left  = cbvh[id]  .bounds(cbvh_data).intersect(ray.pos, ray_inv_dir, &t_left);
+            const u32 hit_right = cbvh[id+1].bounds(cbvh_data).intersect(ray.pos, ray_inv_dir, &t_right);
+
+            const u32 hit_count = cast(u32, hit_left) + cast(u32, hit_right);
 
             if (hit_left && hit_right) {
-                if (t_left > t_right) {
-                    stack.push(id  );
-                    stack.push(id+1);
-                } else {
-                    stack.push(id+1);
-                    stack.push(id  );
-                }
+                const u32 right_first = cast(u32, t_left > t_right);
+                stack.data[stack.top  ] = id + 1 - right_first;
+                stack.data[stack.top+1] = id +     right_first;
             } else {
-                if (hit_left)  { stack.push(id  ); }
-                if (hit_right) { stack.push(id+1); }
+                stack.data[stack.top] = id + cast(u32, hit_right);
             }
+
+            stack.top += hit_count;
         }
     }
 

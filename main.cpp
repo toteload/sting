@@ -522,6 +522,7 @@ int main(int argc, char** args) {
             }
         }
 
+#if 1
         if (keymap.w) { camera.pos = camera.pos + seconds * 1000 * camera.w; acc_frame = 0; }
         if (keymap.s) { camera.pos = camera.pos - seconds * 1000 * camera.w; acc_frame = 0; }
         if (keymap.a) { camera.pos = camera.pos - seconds * 1000 * camera.u; acc_frame = 0; }
@@ -540,6 +541,9 @@ int main(int argc, char** args) {
 
             camera.update_uvw();
         }
+#endif
+
+        //if (frame_count == 40) { break; }
 
 #if 0
         const u32 block_x = 16, block_y = 16;

@@ -108,7 +108,7 @@ __device__           inline void    operator+=(Vector3& a, const Vector3& b);
 __device__           inline void    operator*=(Vector3& a, const Vector3& b);
 __device__           inline void    operator/=(Vector3& a, f32 s);
  
-union Vector4 {
+union alignas(16) Vector4 {
     struct { f32 x, y, z, w; };
     struct { f32 r, g, b, a; };
     f32 data[4];

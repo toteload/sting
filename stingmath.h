@@ -117,31 +117,36 @@ T max(std::initializer_list<T> l) {
 #endif
 
 union Float32 {
+private:
     f32 f;
     u32 u;
 
-    explicit Float32(f32 x) : f(x) { }
-    explicit Float32(u32 x) : u(x) { }
-
-    // NOTE: The arguments here are the bit values not the actual values the
-    // represent so sign is not -1 or 1, but 0 or 1.
-    explicit Float32(u32 sign, u32 exponent, u32 mantissa) :
-        mantissa(mantissa), exponent(exponent), sign(sign)
-    { }
-
+public:
     struct {
         u32 mantissa : 23;
         u32 exponent : 8;
         u32 sign : 1;
     };
+    
+    explicit Float32(f32 x) : f(x) { }
+    explicit Float32(u32 x) : u(x) { }
+
+    // NOTE: The arguments here are the bit values not the actual values the
+    // represent so sign is not -1 or 1, but 0 or 1.
+    __host__ __device__ explicit Float32(u32 sign, u32 exponent, u32 mantissa) :
+        mantissa(mantissa), exponent(exponent), sign(sign)
+    { }
+
+    __host__ __device__ f32 as_f32() { return f; }
+    __host__ __device__ u32 as_u32() { return u; }
 };
 
 inline u32 f32_to_bits(f32 x) {
-    return Float32(x).u;
+    return Float32(x).as_u32();
 }
 
 inline f32 bits_to_f32(u32 x) {
-    return Float32(x).f;
+    return Float32(x).as_f32();
 }
 
 // after calling this a will be min(a, b) and b max(a, b)

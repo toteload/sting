@@ -37,9 +37,9 @@ static_assert(offsetof(BVHNode, left_first) == 28, "");
 static_assert(sizeof(BVHNode) == 32, "");
         
 struct alignas(16) CBVHData {
-    Vector3 origin;
-    i8 ex, ey, ez; u8 pad;
-};
+    Vector3 origin; // 12 bytes
+    u8 ex, ey, ez; u8 pad; // 4 bytes
+}; // 16 bytes
  
 struct alignas(16) CBVHNode {
     u16 bminx, bminy, bminz; // 6 bytes
@@ -50,9 +50,9 @@ struct alignas(16) CBVHNode {
     __device__ u32  count()   const { return meta >> 28; }
     __device__ u32  index()   const { return (meta & 0x0fffffff); }
     __device__ AABB bounds(CBVHData cbvh) const {
-        const f32 fex = powf(2.0f, cbvh.ex);
-        const f32 fey = powf(2.0f, cbvh.ey);
-        const f32 fez = powf(2.0f, cbvh.ez);
+        const f32 fex = Float32(0, cbvh.ex, 0).as_f32();
+        const f32 fey = Float32(0, cbvh.ey, 0).as_f32();
+        const f32 fez = Float32(0, cbvh.ez, 0).as_f32();
 
         const Vector3 bmin = cbvh.origin + vec3(fex*bminx, fey*bminy, fez*bminz);
         const Vector3 bmax = cbvh.origin + vec3(fex*bmaxx, fey*bmaxy, fez*bmaxz);
