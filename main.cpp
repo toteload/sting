@@ -147,8 +147,8 @@ int main(int argc, char** args) {
         .window_width  = 1920/2,
         .window_height = 1080/2,
 
-        .buffer_width  = 1920/2,
-        .buffer_height = 1080/2,
+        .buffer_width  = 1920/3,
+        .buffer_height = 1080/3,
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -237,13 +237,9 @@ int main(int argc, char** args) {
 
     // Wavefront state
     // --------------------------------------------------------------------- //
-    CUdeviceptr wavefront_state, pathstate_buffer[2];
+    CUdeviceptr wavefront_state, pathstate_buffer, state_index[2];
     CUDA_CHECK(cuMemAlloc(&wavefront_state, sizeof(wavefront::State)));
-    CUDA_CHECK(cuMemAlloc(&pathstate_buffer[0], settings.buffer_width * settings.buffer_height * sizeof(wavefront::PathState)));
-    CUDA_CHECK(cuMemAlloc(&pathstate_buffer[1], settings.buffer_width * settings.buffer_height * sizeof(wavefront::PathState)));
-
-    CUdeviceptr wavefront_state_v2, state_index[2];
-    CUDA_CHECK(cuMemAlloc(&wavefront_state_v2, sizeof(wavefront::State_v2)));
+    CUDA_CHECK(cuMemAlloc(&pathstate_buffer, settings.buffer_width * settings.buffer_height * sizeof(wavefront::PathState)));
     CUDA_CHECK(cuMemAlloc(&state_index[0], settings.buffer_width * settings.buffer_height * sizeof(u32)));
     CUDA_CHECK(cuMemAlloc(&state_index[1], settings.buffer_width * settings.buffer_height * sizeof(u32)));
 
@@ -609,8 +605,9 @@ int main(int argc, char** args) {
         wavefront_state_values.total_ray_count = 0;
         wavefront_state_values.job_count[0] = 0;
         wavefront_state_values.job_count[1] = 0;
-        wavefront_state_values.states[0] = cast(wavefront::PathState*, pathstate_buffer[0]);
-        wavefront_state_values.states[1] = cast(wavefront::PathState*, pathstate_buffer[1]);
+        wavefront_state_values.index[0] = cast(u32*, state_index[0]);
+        wavefront_state_values.index[1] = cast(u32*, state_index[1]);
+        wavefront_state_values.states = cast(wavefront::PathState*, pathstate_buffer);
 
         CUDA_CHECK(cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State)));
         CUDA_CHECK(cuMemsetD8(frame_buffer, 0, settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
