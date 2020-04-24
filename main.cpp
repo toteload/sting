@@ -21,6 +21,8 @@
 #include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
+#include "mbvh.h"
+#include "mbvh.cpp"
 
 #include "wavefront.h"
 
@@ -135,24 +137,18 @@ std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radi
     return triangles;
 }
 
-template<typename T>
-void unused(const T& x) {
-    (void)x;
-}
-
 struct Settings {
     u32 window_width, window_height;
     u32 buffer_width, buffer_height;
 };
 
 int main(int argc, char** args) {
-    unused(argc); unused(args);
-
     Settings settings = {
         .window_width  = 1920/2,
         .window_height = 1080/2,
-        .buffer_width  = 1920/3,
-        .buffer_height = 1080/3,
+
+        .buffer_width  = 1920/2,
+        .buffer_height = 1080/2,
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -246,6 +242,11 @@ int main(int argc, char** args) {
     CUDA_CHECK(cuMemAlloc(&pathstate_buffer[0], settings.buffer_width * settings.buffer_height * sizeof(wavefront::PathState)));
     CUDA_CHECK(cuMemAlloc(&pathstate_buffer[1], settings.buffer_width * settings.buffer_height * sizeof(wavefront::PathState)));
 
+    CUdeviceptr wavefront_state_v2, state_index[2];
+    CUDA_CHECK(cuMemAlloc(&wavefront_state_v2, sizeof(wavefront::State_v2)));
+    CUDA_CHECK(cuMemAlloc(&state_index[0], settings.buffer_width * settings.buffer_height * sizeof(u32)));
+    CUDA_CHECK(cuMemAlloc(&state_index[1], settings.buffer_width * settings.buffer_height * sizeof(u32)));
+
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
 
@@ -292,7 +293,7 @@ int main(int argc, char** args) {
 #endif
 
 #if 1
-    //fastObjMesh* mesh = fast_obj_read("Thai_Buddha.obj");
+    //fastObjMesh* mesh = fast_obj_read("data/Thai_Buddha.obj");
     fastObjMesh* mesh = fast_obj_read("data/sponza.obj");
 
     printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
@@ -345,12 +346,14 @@ int main(int argc, char** args) {
     const u64 frequency = SDL_GetPerformanceFrequency();
 
     const u64 start_time = SDL_GetPerformanceCounter();
-    u32 bvh_depth, max_primitives;
-    std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size(), &bvh_depth, &max_primitives);
+    u32 bvh_depth;
+    std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size(), 12, 5, &bvh_depth);
     const u64 end_time = SDL_GetPerformanceCounter();
  
     printf("Created %llu bvh nodes in %f ms...\n", bvh.size(), 1000 * cast(f32, end_time - start_time) / frequency);
-    printf("BVH depth %d, max triangles in leaf %d\n", bvh_depth, max_primitives);
+    printf("BVH depth %d\n", bvh_depth);
+
+    //build_mbvh8_for_triangles(triangles.data(), triangles.size());
 
     const u64 compression_start = SDL_GetPerformanceCounter();
     CBVH cbvh = compress_bvh(bvh);
@@ -603,6 +606,7 @@ int main(int argc, char** args) {
                                   NULL));
 #else
         wavefront::State wavefront_state_values;
+        wavefront_state_values.total_ray_count = 0;
         wavefront_state_values.job_count[0] = 0;
         wavefront_state_values.job_count[1] = 0;
         wavefront_state_values.states[0] = cast(wavefront::PathState*, pathstate_buffer[0]);
@@ -613,6 +617,8 @@ int main(int argc, char** args) {
 
         const u32 block_x = 128;
         const u32 grid_x = (settings.buffer_width * settings.buffer_height + block_x - 1) / block_x;
+
+        const u64 wavefront_start_time = SDL_GetPerformanceCounter();
 
         u32 current = 0;
 
@@ -684,6 +690,27 @@ int main(int argc, char** args) {
             current ^= 1;
         }
 
+        void* reset_params[] = {
+            &wavefront_state,
+            &current,
+        };
+
+        cuLaunchKernel(reset,
+                       1, 1, 1,
+                       1, 1, 1,
+                       0,
+                       0,
+                       reset_params,
+                       NULL);
+
+        CUDA_CHECK(cuMemcpyDtoH(&wavefront_state_values, wavefront_state, sizeof(wavefront::State)));
+
+        const u64 wavefront_end_time = SDL_GetPerformanceCounter();
+
+        const f32 wavefront_frame_time = cast(f32, wavefront_end_time - wavefront_start_time) / frequency;
+        const f32 megarays_this_frame = cast(f32, wavefront_state_values.total_ray_count) / 1000000.0f;
+        const f32 megarays_per_second = megarays_this_frame / wavefront_frame_time;
+
         {
             const u32 block_x = 16, block_y = 16;
             const u32 grid_x = (settings.buffer_width + block_x - 1) / block_x; 
@@ -738,9 +765,12 @@ int main(int argc, char** args) {
 
             ImGui::Separator();
 
+            ImGui::Text("%7.3f MRays/s", megarays_per_second);
+#if 0
             i32 mouse_x, mouse_y;
             SDL_GetMouseState(&mouse_x, &mouse_y);
             ImGui::Text("Mouse: %4d, %4d", mouse_x, mouse_y);
+#endif
 
             ImGui::Separator();
 

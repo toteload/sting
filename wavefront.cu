@@ -24,6 +24,7 @@ __global__ void reset(wavefront::State* state, u32 current) {
         return;
     }
 
+    state->total_ray_count += state->job_count[current];
     state->job_count[current ^ 1] = 0;
 }
 

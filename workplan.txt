@@ -1,6 +1,11 @@
 [ ] Add basic profiling graph
 [ ] camera gui controls
 [ ] Clean up main
+[ ] check up on the cost calculation for the SAH bin splitting partition
+    function.
+[ ] error reporting for building the compressed BVH. It is possible that the
+    original BVH has more than 15 primitives in a leaf which is something that is
+    not supported by the compressed BVH.
 
 sting 0.2
 -------------------------------------------------------------------------------

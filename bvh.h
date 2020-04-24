@@ -42,6 +42,8 @@ struct alignas(16) CBVHData {
 }; // 16 bytes
  
 struct alignas(16) CBVHNode {
+    // We use 4 bits for the count, which means we can store at most 15 primitives per leaf.
+
     u16 bminx, bminy, bminz; // 6 bytes
     u16 bmaxx, bmaxy, bmaxz; // 6 bytes
     u32 meta;                // 4 bytes
@@ -66,19 +68,14 @@ struct CBVH {
     std::vector<CBVHNode> nodes;
 };
                                                   
-#ifndef __CUDACC__
 // NOTE
 // This will reorder the `triangles` array
 std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count, 
-                                             u32* bvh_depth_out, u32* bvh_max_primitives_out);
-
-std::vector<BVHNode> build_bvh_for_spheres(RenderSphere* spheres, u32 sphere_count,
-                                           u32* bvh_depth_out, u32* bvh_max_primitives_out);
+                                             u32 partition_bin_count, u32 max_primitives_in_leaf,
+                                             u32* bvh_depth_out);
  
 CBVH compress_bvh(std::vector<BVHNode> bvh);
-#endif
 
-#ifdef __CUDACC__
 struct alignas(16) BVHTriangleIntersection {
     u32 id;
     f32 t, u, v;
@@ -94,24 +91,7 @@ __device__ bool bvh_intersect_triangles_shadowcast(BVHNode const * bvh,
                                                    RenderTriangle const * triangles, 
                                                    Ray ray);
 
-struct BVHSphereIntersection {
-    u32 id;
-    f32 t;
-
-    __device__ bool hit() const { return id != UINT32_MAX; }
-};
-
-__device__ BVHSphereIntersection bvh_intersect_sphers(BVHNode const * bvh,
-                                                      RenderSphere const * spheres,
-                                                      Ray ray);
-
-__device__ bool bvh_intersect_spheres_shadowcast(BVHNode const * bvh,
-                                                 RenderSphere const * spheres,
-                                                 Ray ray);
-
 __device__ BVHTriangleIntersection cbvh_intersect_triangles(CBVHData cbvh,
                                                             CBVHNode const * cnodes,
                                                             RenderTriangle const * triangles,
                                                             Ray ray);
-
-#endif
