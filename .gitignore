@@ -4,6 +4,7 @@ imgui.ini
 *.dll
 *.pdb
 *.ptx
+*.bvh
 *.obj
 porky_load.h
 porky_load.cpp

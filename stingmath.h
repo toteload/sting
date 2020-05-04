@@ -175,6 +175,7 @@ Vector3 spherical_to_cartesian(f32 inclination, f32 azimuth) {
                 sinf(inclination) * sinf(azimuth));
 }
 
+// Build an orthonormal basis
 __device__ inline
 void build_orthonormal_basis(const Vector3& n, Vector3* t, Vector3* b) {
     *t = (fabs(n.x) > fabs(n.y)) ? vec3(n.z, 0.0f, -n.x).normalized() : 
@@ -185,6 +186,13 @@ void build_orthonormal_basis(const Vector3& n, Vector3* t, Vector3* b) {
 __device__ inline
 Vector3 to_world_space(const Vector3& sample, const Vector3& n, const Vector3& t, const Vector3& b) {
     return sample.x * b + sample.y * n + sample.z * t;
+}
+
+inline
+Vector3 to_tangent_space(const Vector3& world_sample, const Vector3& n, const Vector3& t, const Vector3& b) {
+    return world_sample.x * vec3(b.x, n.x, t.x) +
+           world_sample.y * vec3(b.y, n.y, t.y) +
+           world_sample.z * vec3(b.z, n.z, t.z);
 }
 
 __device__ inline
@@ -356,18 +364,57 @@ u32 greater_equals(const vec4& a, const vec4& b) {
 // Normal packing
 // ----------------------------------------------------------------------------
 
+#if 0
 __device__ inline
-u32 pack_normal(Vector3 n) {
+u32 pack_tangent_normal(Vector3 n) {
     const i16 nx = cast(i16, n.x * 32767.0f);
     const i16 nz = cast(i16, n.z * 32767.0f);
     return (cast(u32, nx) << 16) | (cast(u32, nz) & 0xffff);
 }
 
 __device__ inline 
-Vector3 unpack_normal(u32 pn) {
+Vector3 unpack_tangent_normal(u32 pn) {
     const f32 nx = (pn >> 16) / 32767.0f;
     const f32 nz = (pn & 0xffff) / 32767.0f;
     const f32 ny = sqrtf(1.0f - nx*nx - nz*nz);
+    return vec3(nx, ny, nz);
+}
+#endif
+
+union NormalVectorPacking {
+    u32 u;
+
+    struct {
+        u16 pad : 1;
+        i16 nx : 15;
+        u16 is_z_negative : 1;
+        i16 ny : 15;
+    };
+};
+
+static_assert(sizeof(NormalVectorPacking) == 4, "");
+
+// n will be a normal vector (vector of length 1) that can have any orientation
+u32 pack_normal_vector(const Vector3& n) {
+    const i16 nx = cast(i16, n.x * 16383.0f); // 15 bits
+    const i16 ny = cast(i16, n.y * 16383.0f); // 15 bits
+
+    NormalVectorPacking pack;
+    pack.pad = 0;
+    pack.nx = nx;
+    pack.is_z_negative = (n.z < 0.0f) ? 1 : 0;
+    pack.ny = ny;
+
+    return pack.u;
+}
+
+Vector3 unpack_normal_vector(u32 pn) {
+    NormalVectorPacking pack;
+    pack.u = pn;
+
+    const f32 nx = pack.nx / 16383.0f;
+    const f32 ny = pack.ny / 16383.0f;
+    const f32 nz = (pack.is_z_negative ? (-1.0f) : 1.0f) * sqrtf(1.0f - nx*nx - ny*ny);
     return vec3(nx, ny, nz);
 }
 

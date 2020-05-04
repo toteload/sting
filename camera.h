@@ -36,11 +36,14 @@ struct PointCamera {
     }
 
     void update_uvw() {
-        // make sure that inclination and azimuth are in a valid range
-        inclination = clamp<float>(inclination, 0.0001f, M_PI - 0.0001f);
+        // inclination cannot be exactly 0 or pi, because then our w vector
+        // will be perpendicular to our up vector which causes some camera 
+        // glitching. This is easy fix :)
+        constexpr f32 EPSILON = 0.000001f;
+        inclination = clamp<float>(inclination, EPSILON, M_PI - EPSILON);
 
-        //if (azimuth >= M_2_PI) { azimuth -= M_2_PI; }
-        //if (azimuth < 0.0f) { azimuth += M_2_PI; }
+        if (azimuth > 2.0f * M_PI) { azimuth -= 2.0f * M_PI; }
+        if (azimuth < 0.0f)        { azimuth += 2.0f * M_PI; }
 
         w = spherical_to_cartesian(inclination, azimuth);
         u = cross(w, vec3(0.0f, 1.0f, 0.0f)).normalized();

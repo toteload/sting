@@ -21,14 +21,18 @@
 #include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
+#include "mesh.cpp"
+#include "bvh_file.cpp"
 
 #include "wavefront.h"
 
 #define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "porky_load.h"
 #include "imgui/imconfig.h"
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "imgui/imgui_impl_sdl.h"
 #include "imgui/imgui_impl_opengl3.h"
+#include "dragfloatprecise.cpp"
 
 const uint32_t STING_VERSION_MAJOR = 0;
 const uint32_t STING_VERSION_MINOR = 1;
@@ -71,75 +75,6 @@ bool does_file_exist(const char* filename) {
     return (attribs != INVALID_FILE_ATTRIBUTES) && !(attribs & FILE_ATTRIBUTE_DIRECTORY); 
 }
 
-std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, Vector3 pos) {
-    if (rows < 2 || columns < 3) {
-        return { };
-    }
-
-    std::vector<Vector3> pts;
-    std::vector<Vector3> normals;
-
-    for (u32 i = 1; i < rows; i++) {
-        for (u32 j = 0; j < columns; j++) {
-            const f32 phi = i * M_PI / cast(f32, rows);
-            const f32 theta = (cast(f32, j) / cast(f32, columns)) * 2.0f * M_PI;
-            const Vector3 n = spherical_to_cartesian(phi, theta);
-            pts.push_back(pos + radius * n);
-            normals.push_back(n);
-        }
-    }
-
-    const size_t top = pts.size();
-    pts.push_back(pos + radius * vec3(0.0f, 1.0f, 0.0f));
-    normals.push_back(vec3(0.0f, 1.0f, 0.0f));
-
-    const size_t bottom = pts.size();
-    pts.push_back(pos + radius * vec3(0.0f, -1.0f, 0.0f));
-    normals.push_back(vec3(0.0f, -1.0f, 0.0f));
-
-    std::vector<RenderTriangle> triangles;
-
-    for (u32 i = 0; i < columns; i++) {
-        const u32 inext = (i + 1) % columns;
-#if 0
-        triangles.push_back(RenderTriangle(    pts[top],     pts[i],     pts[inext],
-                                           normals[top], normals[i], normals[inext]));
-#endif
-        triangles.push_back(RenderTriangle(pts[top], pts[i], pts[inext], 0));
-    }
-
-    for (u32 r = 0; r < rows - 2; r++) {
-        for (u32 c = 0; c < columns; c++) {
-            const u32 cnext = (c + 1) % columns;
-
-            const u32 rowi = r * columns;
-            const u32 rowinext = (r + 1) * columns;
-
-#if 0
-            triangles.push_back(RenderTriangle(    pts[rowi + c],     pts[rowinext + c],     pts[rowi + cnext],
-                                               normals[rowi + c], normals[rowinext + c], normals[rowi + cnext]));
-            triangles.push_back(RenderTriangle(    pts[rowinext + c],     pts[rowinext + cnext],     pts[rowi + cnext],
-                                               normals[rowinext + c], normals[rowinext + cnext], normals[rowi + cnext]));
-#endif
-            triangles.push_back(RenderTriangle(pts[rowi + c], pts[rowinext + c], pts[rowi + cnext], 0));
-            triangles.push_back(RenderTriangle(pts[rowinext + c], pts[rowinext + cnext], pts[rowi + cnext], 0));
-        }
-    }
-
-    for (u32 i = 0; i < columns; i++) {
-        const u32 inext = (i + 1) % columns;
-        const u32 rowi = (rows - 2) * columns;
-
-        triangles.push_back(RenderTriangle(pts[bottom], pts[rowi + inext], pts[rowi + i], 0));
-#if 0
-        triangles.push_back(RenderTriangle(    pts[bottom],     pts[rowi + inext],     pts[rowi + i],
-                                           normals[bottom], normals[rowi + inext], normals[rowi + i]));
-#endif
-    }
-
-    return triangles;
-}
-
 struct Settings {
     u32 window_width, window_height;
     u32 buffer_width, buffer_height;
@@ -150,11 +85,11 @@ int main(int argc, char** args) {
     unused(args);
 
     Settings settings = {
-        .window_width  = 1920/2,
-        .window_height = 1080/2,
+        .window_width  = 1920,
+        .window_height = 1080,
 
-        .buffer_width  = 1920/3,
-        .buffer_height = 1080/3,
+        .buffer_width  = 1920/2,
+        .buffer_height = 1080/2,
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -172,7 +107,7 @@ int main(int argc, char** args) {
                                           SDL_WINDOWPOS_CENTERED,
                                           settings.window_width,
                                           settings.window_height,
-                                          SDL_WINDOW_OPENGL);// | SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                          SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
@@ -252,136 +187,71 @@ int main(int argc, char** args) {
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
 
-    std::vector<RenderTriangle> triangles;
-
 #if 0
-    auto sphere_mesh = generate_sphere_mesh(36, 36, 0.2f, Vector3(0.0f, 0.0f, 0.0f));
-    for (u32 i = 0; i < sphere_mesh.size(); i++) {
-        sphere_mesh[i].material = MATERIAL_DIFFUSE;
-    }
-    triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
-
-    auto spheremesh0 = generate_sphere_mesh(36, 36, 0.3f, Vector3(0.4f, 0.0f, 0.0f));
-    for (u32 i = 0; i < spheremesh0.size(); i++) {
-        spheremesh0[i].material = MATERIAL_DIFFUSE;
-    }
-    triangles.insert(triangles.end(), spheremesh0.begin(), spheremesh0.end());
-#endif
-
-#if 0
-    auto light0 = RenderTriangle(Vector3(0.0f, 0.4f, 0.0f),
-                                 Vector3(0.3f, 0.4f, 0.0f),
-                                 Vector3(0.0f, 0.5f, 0.3f));
-    light0.material = MATERIAL_EMISSIVE;
-    light0.colorr = light0.colorg = 0.0f;
-    light0.light_intensity = 1.0f;
-    triangles.push_back(light0);
-
-    auto light1 = RenderTriangle(Vector3(0.0f, -0.4f, 0.0f),
-                                 Vector3(0.3f, -0.4f, 0.0f),
-                                 Vector3(0.0f, -0.5f, 0.3f));
-    light1.material = MATERIAL_EMISSIVE;
-    light1.colorb = light1.colorg = 0.0f;
-    light1.light_intensity = 1.0f;
-    triangles.push_back(light1);
-
-    auto light2 = RenderTriangle(Vector3(0.0f, 0.0f, -0.8f),
-                                 Vector3(0.3f, 0.0f, -0.8f),
-                                 Vector3(0.3f, 0.5f, -0.8f));
-    light2.material = MATERIAL_EMISSIVE;
-    light2.colorb = light2.colorr = 0.0f;
-    light2.light_intensity = 4.0f;
-    triangles.push_back(light2);
-#endif
-
-#if 1
-    //fastObjMesh* mesh = fast_obj_read("data/Thai_Buddha.obj");
-    fastObjMesh* mesh = fast_obj_read("data/sponza.obj");
-
-    printf("Mesh has %d vertices, and %d normals\n", mesh->position_count, mesh->normal_count);
-
-    std::vector<Material> materials;
-    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 1.0f, .b = 1.0f, });
-
-    if (!mesh) {
-        printf("Failed to load mesh...\n");
-        return 1;
-    }
-
-    // Loop over all the groups in the mesh
-    for (uint32_t i = 0; i < mesh->group_count; i++) {
-        fastObjGroup group = mesh->groups[i];
-
-        uint32_t vertex_index = 0;
-
-        // Loop over all the faces in this group
-        for (uint32_t j = 0; j < group.face_count; j++) {
-            const uint32_t vertex_count = mesh->face_vertices[group.face_offset + j];
-
-            if (vertex_count != 3) {
-                printf("Found a face that is not a triangle...\n");
-                continue;
+    // Create some spheres and save them to a file
+    {
+        std::vector<RenderTriangle> triangles;
+       
+        for (u32 x = 0; x < 1; x++) {
+            for (u32 z = 0; z < 1; z++) {
+                for (u32 i = 0; i < 8; i++) {
+                    const f32 theta = cast(f32, i) / 8.0f * 2.0f * M_PI;
+                    auto sphere_mesh = generate_sphere_mesh(5, 5, 10.0f, vec3(x * 60 + 20.0f * sinf(theta),
+                                                                                0.0f,
+                                                                                z * 60 + 20.0f * cosf(theta)),
+                                                            0, true);
+                    triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
+                }
             }
-
-            Vector3 vertices[3];
-
-            // Loop over all the vertices in this face
-            for (uint32_t k = 0; k < vertex_count; k++) {
-                fastObjIndex index = mesh->indices[group.index_offset + vertex_index];
-
-                vertices[k] = vec3(mesh->positions[3 * index.p + 0], 
-                                   mesh->positions[3 * index.p + 1], 
-                                   mesh->positions[3 * index.p + 2]);
-
-                vertex_index++;
-            }
-            auto tri = RenderTriangle(vertices[0], vertices[1], vertices[2], 0);
-            triangles.push_back(tri);
         }
+
+        auto bvh = build_bvh_for_triangles_and_reorder(triangles.data(), triangles.size(), 12, 5);
+        
+        printf("%llu sphere triangles\n", triangles.size());
+        
+        save_bvh_object("spheres.bvh", bvh.data(), bvh.size(), triangles.data(), triangles.size());
     }
-
-    fast_obj_destroy(mesh);
 #endif
-
-    printf("%llu RenderTriangles created...\n", triangles.size());
+      
+    std::vector<Material> materials;
+    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 0.1f, .b = 1.0f, });
 
     const u64 frequency = SDL_GetPerformanceFrequency();
 
+    std::vector<RenderTriangle> triangles;
     std::vector<BVHNode> bvh;
 
-    // TODO
-    // cannot just load the bvh since then the triangles are not reordered.
-    // building a bvh should also return the new order of the triangles,
-    // then let the user reorder the triangles
-    if (!does_file_exist("sponza.bvh")) {
+    const char* bvh_filename = "spheres.bvh";
+
+    if (!does_file_exist(bvh_filename)) {
         printf("Could not find bvh file. Rebuilding...\n");
+
+        triangles = load_mesh_from_obj_file("data/sponza.obj", 0);
+        printf("%llu RenderTriangles created...\n", triangles.size());
+
         const u64 start_time = SDL_GetPerformanceCounter();
-        BVHBuildResult bvh_build = build_bvh_for_triangles(triangles.data(), triangles.size(), 12, 5);
+        bvh = build_bvh_for_triangles_and_reorder(triangles.data(), triangles.size(), 12, 5);
         const u64 end_time = SDL_GetPerformanceCounter();
      
         printf("Created %llu bvh nodes in %f ms...\n", 
-               bvh_build.bvh.size(), 
+               bvh.size(), 
                1000 * cast(f32, end_time - start_time) / frequency);
-        printf("BVH depth %d\n", bvh_build.depth);
 
-        bvh = bvh_build.bvh;
-
-        save_bvh_build("sponza.bvh", bvh_build);
+        save_bvh_object(bvh_filename, bvh.data(), bvh.size(), triangles.data(), triangles.size());
     } else {
         printf("Found bvh file. Loading from disk...\n");
         u64 bvh_file_size;
-        void* bvh_data = read_file("sponza.bvh", &bvh_file_size);
+        void* bvh_data = read_file(bvh_filename, &bvh_file_size);
         printf("Loaded file of %llu bytes...\n", bvh_file_size);
 
-        BVHBuildResult bvh_build = load_bvh_build(bvh_data);
-
-        bvh = bvh_build.bvh;
-
-        // Reorder the triangles
-        std::vector<RenderTriangle> tmp(triangles.data(), triangles.data() + triangles.size());
-        for (u32 i = 0; i < triangles.size(); i++) {
-            triangles[i] = tmp[bvh_build.prim_order[i]];
+        BVHObject bvh_object = load_bvh_object(bvh_data);
+        if (!bvh_object.valid) {
+            printf("Loaded bvh is not valid...\n");
+            return 3;
         }
+
+        bvh = bvh_object.bvh;
+        triangles = bvh_object.triangles;
 
         free(bvh_data);
     }
@@ -396,28 +266,16 @@ int main(int argc, char** args) {
     const u64 compression_end = SDL_GetPerformanceCounter();
     printf("Compressed bvh in %f ms...\n", 1000 * cast(f32, compression_end - compression_start) / frequency);
     
-#if 0
-    std::vector<u32> lights;
-    for (u32 i = 0; i < triangles.size(); i++) {
-        if (triangles[i].material == MATERIAL_EMISSIVE) {
-            lights.push_back(i);
-            printf("light found at %d\n", i);
-        }
-    }
-#endif
-
     CUdeviceptr gpu_triangles, gpu_bvh, gpu_cbvh, gpu_materials;//, gpu_lights;
     CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size()  * sizeof(RenderTriangle)));
     CUDA_CHECK(cuMemAlloc(&gpu_bvh,       bvh.size()        * sizeof(BVHNode)));
     CUDA_CHECK(cuMemAlloc(&gpu_cbvh,      cbvh.nodes.size() * sizeof(CBVHNode)));
     CUDA_CHECK(cuMemAlloc(&gpu_materials, materials.size()  * sizeof(Material)));
-    //cuMemAlloc(&gpu_lights, lights.size() * sizeof(u32));
 
     CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(),  triangles.size()  * sizeof(RenderTriangle)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_bvh,       bvh.data(),        bvh.size()        * sizeof(BVHNode)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_cbvh,      cbvh.nodes.data(), cbvh.nodes.size() * sizeof(CBVHNode)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_materials, materials.data(),  materials.size()  * sizeof(Material)));
-    //cuMemcpyHtoD(gpu_lights, lights.data(), lights.size() * sizeof(u32));
 
     // Skybox loading
     // --------------------------------------------------------------------- //
@@ -448,7 +306,7 @@ int main(int argc, char** args) {
 
     // Setting the camera and keymap
     // --------------------------------------------------------------------- //
-    PointCamera camera(vec3(-0.5f, 0.5f, 0.5f), // position
+    PointCamera camera(vec3(180, 140, -42), // position
                        vec3(0, 1, 0), // up
                        vec3(0, 0, 0), // at
                        settings.window_width, settings.window_height, 
@@ -481,8 +339,9 @@ int main(int argc, char** args) {
     u32 accumulate_toggle = 1;
 
     bool show_demo = false;
-    bool show_controls = false;
+    bool show_controls = true;
 
+    f32 camera_speed = 100;
     f32 frame_time = 0;
 
     glEnable(GL_FRAMEBUFFER_SRGB);
@@ -562,10 +421,10 @@ int main(int argc, char** args) {
         }
 
 #if 1
-        if (keymap.w) { camera.pos = camera.pos + seconds * 1000 * camera.w; acc_frame = 0; }
-        if (keymap.s) { camera.pos = camera.pos - seconds * 1000 * camera.w; acc_frame = 0; }
-        if (keymap.a) { camera.pos = camera.pos - seconds * 1000 * camera.u; acc_frame = 0; }
-        if (keymap.d) { camera.pos = camera.pos + seconds * 1000 * camera.u; acc_frame = 0; }
+        if (keymap.w) { camera.pos = camera.pos + seconds * camera_speed * camera.w; acc_frame = 0; }
+        if (keymap.s) { camera.pos = camera.pos - seconds * camera_speed * camera.w; acc_frame = 0; }
+        if (keymap.a) { camera.pos = camera.pos - seconds * camera_speed * camera.u; acc_frame = 0; }
+        if (keymap.d) { camera.pos = camera.pos + seconds * camera_speed * camera.u; acc_frame = 0; }
 
         if (keymap.up)    { camera.inclination -= seconds; acc_frame = 0; }
         if (keymap.down)  { camera.inclination += seconds; acc_frame = 0; }
@@ -584,63 +443,6 @@ int main(int argc, char** args) {
 
         //if (frame_count == 40) { break; }
 
-#if 0
-        const u32 block_x = 16, block_y = 16;
-        const u32 grid_x = (settings.buffer_width + block_x - 1) / block_x; 
-        const u32 grid_y = (settings.buffer_height + block_y - 1) / block_y;
-
-        //u32 light_count = lights.size();
-
-#if 1
-        void* render_params[] = {
-            &gpu_bvh, 
-            &gpu_triangles, 
-            &gpu_materials,
-            &camera,
-            &skybox_buffer,
-            &frame_buffer, 
-            &settings.buffer_width, 
-            &settings.buffer_height, 
-            &frame_count,
-        };
-
-        CUDA_CHECK(cuLaunchKernel(render_bruteforce, 
-                                  grid_x, grid_y, 1, 
-                                  block_x, block_y, 1, 
-                                  0, 
-                                  0, 
-                                  render_params, 
-                                  NULL));
-#endif
-
-#if 0
-        void* render_params[] = {
-            &gpu_bvh, &gpu_triangles, &gpu_lights, &light_count, &camera,
-            &skybox_buffer, &frame_buffer, &width, &height, &frame_count,
-        };
-        cuLaunchKernel(render_nee, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, render_params, NULL);
-#endif
-
-#if 1
-        void* accumulate_params[] = {
-            &frame_buffer, &accumulator, &screen_buffer, &settings.buffer_width, &settings.buffer_height, &acc_frame,
-        };
-        cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
-#endif
-
-        void* blit_params[] = {
-            &screen_buffer, 
-            &settings.buffer_width, 
-            &settings.buffer_height,
-        };
-        CUDA_CHECK(cuLaunchKernel(blit_to_screen, 
-                                  grid_x, grid_y, 1, 
-                                  block_x, block_y, 1, 
-                                  0, 
-                                  0, 
-                                  blit_params, 
-                                  NULL));
-#else
         wavefront::State wavefront_state_values;
         wavefront_state_values.total_ray_count = 0;
         wavefront_state_values.job_count[0] = 0;
@@ -770,7 +572,6 @@ int main(int argc, char** args) {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-#endif
         glBlitNamedFramebuffer(gl_frame_buffer, 0, 
                                0, 0, settings.buffer_width, settings.buffer_height, 
                                0, settings.window_height, settings.window_width, 0, 
@@ -797,17 +598,14 @@ int main(int argc, char** args) {
             }
 
             ImGui::Separator();
-
             ImGui::Text("%8.3f ms/frame, fps: %6.1f", 1000 * frame_time, 1.0f / frame_time);
-
+            ImGui::Separator();
+            ImGui::Text("%7.3f MRays/s", megarays_per_second);
             ImGui::Separator();
 
-            ImGui::Text("%7.3f MRays/s", megarays_per_second);
-#if 0
             i32 mouse_x, mouse_y;
             SDL_GetMouseState(&mouse_x, &mouse_y);
             ImGui::Text("Mouse: %4d, %4d", mouse_x, mouse_y);
-#endif
 
             ImGui::Separator();
 
@@ -829,6 +627,8 @@ int main(int argc, char** args) {
             if (ImGui::InputFloat3("Position", cast(f32*, &camera.pos), "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
                 reset_frame = true;
             }
+
+            DragFloatPrecise("Camera speed", &camera_speed);
 
             ImGui::End();
         }

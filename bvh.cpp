@@ -169,8 +169,8 @@ BVHBuildResult build_bvh(AABB const * aabbs, u32 aabb_count, u32 partition_bin_c
              .prim_order = prim_order, };
 }
 
-BVHBuildResult build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count,
-                                       u32 partition_bin_count, u32 max_prims_in_leaf) 
+std::vector<BVHNode> build_bvh_for_triangles_and_reorder(RenderTriangle* triangles, u32 triangle_count,
+                                                         u32 partition_bin_count, u32 max_prims_in_leaf) 
 {
     std::vector<AABB> aabbs(triangle_count);
     for (u32 i = 0; i < triangle_count; i++) {
@@ -179,16 +179,15 @@ BVHBuildResult build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_c
                                       triangles[i].v2);
     }
 
-    BVHBuildResult result = build_bvh(aabbs.data(), triangle_count,
-                                      partition_bin_count, max_prims_in_leaf);
+    BVHBuildResult result = build_bvh(aabbs.data(), triangle_count, partition_bin_count, max_prims_in_leaf);
 
     // Reorder the triangles
     std::vector<RenderTriangle> tmp(triangles, triangles + triangle_count);
     for (u32 i = 0; i < triangle_count; i++) {
         triangles[i] = tmp[result.prim_order[i]];
     }
-
-    return result;
+    
+    return result.bvh;
 }
 
 CBVH compress_bvh(std::vector<BVHNode> bvh) {
@@ -223,41 +222,6 @@ CBVH compress_bvh(std::vector<BVHNode> bvh) {
     }
 
     return { .data = { origin, ex, ey, ez, 0, }, .nodes = cbvh };
-}
-
-void save_bvh_build(const char* filename, const BVHBuildResult& build) {
-    FILE* f = fopen(filename, "wb");
-    if (!f) { return; }
-
-    BVHFileHeader header;
-    header.node_count = build.bvh.size();
-    header.prim_count = build.prim_order.size();
-    header.bvh_depth  = build.depth;
-
-    fwrite(&header, 1, sizeof(header), f);
-    fwrite(build.bvh.data(), 1, header.node_count * sizeof(BVHNode), f);
-    fwrite(build.prim_order.data(), 1, header.prim_count * sizeof(u32), f);
-
-    fclose(f);
-}
-
-BVHBuildResult load_bvh_build(void const * bvh_data) {
-    BVHFileHeader const * header = cast(BVHFileHeader*, bvh_data);
-    BVHNode const * node_data = cast(BVHNode*, header + 1);
-    u32 const * prim_order_data = cast(u32*, node_data + header->node_count);
-
-    std::vector<BVHNode> bvh(header->node_count);
-    memcpy(bvh.data(), node_data, header->node_count * sizeof(BVHNode));
-
-    std::vector<u32> prim_order(header->prim_count);
-    memcpy(prim_order.data(), prim_order_data, header->prim_count * sizeof(u32));
-
-    BVHBuildResult result;
-    result.depth      = header->bvh_depth;
-    result.bvh        = bvh;
-    result.prim_order = prim_order;
-
-    return result;
 }
 
 #endif // ifndef __CUDACC__

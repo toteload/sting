@@ -13,8 +13,10 @@
 // one buffer of path states and then have another array that indexes into
 // the path state array. The benefit of this is that you use less memory
 // and you don't have to immediately write the result away when a path
-// finishes. The downside is that memory access is no longer linear.
+// finishes. The downside is that memory access is no longer linear over the PathStates.
 // Currently, I am not sure which one would be better.
+
+// At the moment the second approach is implemented, with the indexing into the pathstate array.
 
 extern "C"
 __global__ void reset(wavefront::State* state, u32 current) {
@@ -133,16 +135,10 @@ __global__ void shade(wavefront::State* state, u32 current,
 
     switch (material.type) {
     case Material::DIFFUSE: {
-        Vector3 n;
-        {
-            const Vector3 tangent_space_normal = triangle_normal_lerp(unpack_normal(tri.n0), 
-                                                                      unpack_normal(tri.n1), 
-                                                                      unpack_normal(tri.n2), 
-                                                                      pathstate.u, pathstate.v);
-            Vector3 t, b;
-            build_orthonormal_basis(tri.face_normal, &t, &b);
-            n = to_world_space(tangent_space_normal, tri.face_normal, t, b); 
-        }
+        Vector3 n = triangle_normal_lerp(tri.n0, 
+                                         tri.n1, 
+                                         tri.n2, 
+                                         pathstate.u, pathstate.v);
 
         const Vector3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
 
