@@ -67,14 +67,33 @@ struct CBVH {
     CBVHData data;
     std::vector<CBVHNode> nodes;
 };
+
+struct BVHBuildResult {
+    u32                  depth;
+    std::vector<BVHNode> bvh;
+    std::vector<u32>     prim_order;
+};
+
+struct BVHFileHeader {
+    u32 node_count;
+    u32 prim_count;
+    u32 bvh_depth;
+
+    // list of nodes
+    // list of prim indices
+};
+
+BVHBuildResult build_bvh(AABB const * aabbs, u32 aabb_count, u32 partition_bin_count, u32 max_prims_in_leaf);
                                                   
 // NOTE
-// This will reorder the `triangles` array
-std::vector<BVHNode> build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count, 
-                                             u32 partition_bin_count, u32 max_primitives_in_leaf,
-                                             u32* bvh_depth_out);
+// This will reorder the `triangles` array for you.
+BVHBuildResult build_bvh_for_triangles(RenderTriangle* triangles, u32 triangle_count, 
+                                       u32 partition_bin_count, u32 max_primitives_in_leaf);
  
 CBVH compress_bvh(std::vector<BVHNode> bvh);
+
+void           save_bvh_build(char const * filename, const BVHBuildResult& build);
+BVHBuildResult load_bvh_build(void const * bvh_data);
 
 struct alignas(16) BVHTriangleIntersection {
     u32 id;

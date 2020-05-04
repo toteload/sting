@@ -51,6 +51,7 @@ constexpr f32 TWO_PI = 6.28318530717958647692528676f;
 
 
 #define cast(Type, Expr) ((Type)(Expr))
+#define unused(X) ((void)(X))
 
 
 
@@ -469,11 +470,12 @@ inline void* read_file(const char* filename, u64* size = NULL) {
     FILE* f = fopen(filename, "rb");
     if (!f) { return NULL; }
     fseek(f, 0, SEEK_END);
-    u64 file_size = ftell(f);
+    const u64 file_size = ftell(f);
     void* data = malloc(file_size + 1);
     if (!data) { return NULL; }
     fseek(f, 0, SEEK_SET);
-    fread(data, 1, file_size, f);
+    const u64 bytes_read = fread(data, 1, file_size, f);
+    if (bytes_read != file_size) { free(data); return NULL; }
     cast(u8*, data)[file_size] = '\0';
     fclose(f);
     if (size) { *size = file_size; }

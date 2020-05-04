@@ -10,8 +10,8 @@ struct alignas(16) MBVH8Node {
         // - internal node, top 3 bits of meta are 0b001, the other 5 bits store
         //   the child slot index + 24, so it will be in range [24..31]
         //
-        // - leaf node, top 2 bits are the number of triangles stored in binary
-        //   encoding. The 3rd bit is 0b1. The lower 5 bits store the index
+        // - leaf node, top 3 bits are the number of triangles stored in unary
+        //   encoding. The lower 5 bits store the index
         //   relative to triangle_base_index.
         u8 meta;
 

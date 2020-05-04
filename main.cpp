@@ -21,8 +21,6 @@
 #include "camera.h"
 #include "bvh.h"
 #include "bvh.cpp"
-#include "mbvh.h"
-#include "mbvh.cpp"
 
 #include "wavefront.h"
 
@@ -67,6 +65,11 @@ struct Keymap {
         return map;
     }
 };
+
+bool does_file_exist(const char* filename) {
+    const DWORD attribs = GetFileAttributes(filename);
+    return (attribs != INVALID_FILE_ATTRIBUTES) && !(attribs & FILE_ATTRIBUTE_DIRECTORY); 
+}
 
 std::vector<RenderTriangle> generate_sphere_mesh(u32 rows, u32 columns, f32 radius, Vector3 pos) {
     if (rows < 2 || columns < 3) {
@@ -143,6 +146,9 @@ struct Settings {
 };
 
 int main(int argc, char** args) {
+    unused(argc); 
+    unused(args);
+
     Settings settings = {
         .window_width  = 1920/2,
         .window_height = 1080/2,
@@ -341,15 +347,49 @@ int main(int argc, char** args) {
 
     const u64 frequency = SDL_GetPerformanceFrequency();
 
-    const u64 start_time = SDL_GetPerformanceCounter();
-    u32 bvh_depth;
-    std::vector<BVHNode> bvh = build_bvh_for_triangles(triangles.data(), triangles.size(), 12, 5, &bvh_depth);
-    const u64 end_time = SDL_GetPerformanceCounter();
- 
-    printf("Created %llu bvh nodes in %f ms...\n", bvh.size(), 1000 * cast(f32, end_time - start_time) / frequency);
-    printf("BVH depth %d\n", bvh_depth);
+    std::vector<BVHNode> bvh;
 
-    //build_mbvh8_for_triangles(triangles.data(), triangles.size());
+    // TODO
+    // cannot just load the bvh since then the triangles are not reordered.
+    // building a bvh should also return the new order of the triangles,
+    // then let the user reorder the triangles
+    if (!does_file_exist("sponza.bvh")) {
+        printf("Could not find bvh file. Rebuilding...\n");
+        const u64 start_time = SDL_GetPerformanceCounter();
+        BVHBuildResult bvh_build = build_bvh_for_triangles(triangles.data(), triangles.size(), 12, 5);
+        const u64 end_time = SDL_GetPerformanceCounter();
+     
+        printf("Created %llu bvh nodes in %f ms...\n", 
+               bvh_build.bvh.size(), 
+               1000 * cast(f32, end_time - start_time) / frequency);
+        printf("BVH depth %d\n", bvh_build.depth);
+
+        bvh = bvh_build.bvh;
+
+        save_bvh_build("sponza.bvh", bvh_build);
+    } else {
+        printf("Found bvh file. Loading from disk...\n");
+        u64 bvh_file_size;
+        void* bvh_data = read_file("sponza.bvh", &bvh_file_size);
+        printf("Loaded file of %llu bytes...\n", bvh_file_size);
+
+        BVHBuildResult bvh_build = load_bvh_build(bvh_data);
+
+        bvh = bvh_build.bvh;
+
+        // Reorder the triangles
+        std::vector<RenderTriangle> tmp(triangles.data(), triangles.data() + triangles.size());
+        for (u32 i = 0; i < triangles.size(); i++) {
+            triangles[i] = tmp[bvh_build.prim_order[i]];
+        }
+
+        free(bvh_data);
+    }
+
+#if 0
+    build_mbvh8_for_triangles(triangles.data(), triangles.size());
+    return 0;
+#endif
 
     const u64 compression_start = SDL_GetPerformanceCounter();
     CBVH cbvh = compress_bvh(bvh);
