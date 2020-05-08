@@ -52,6 +52,7 @@ constexpr f32 TWO_PI = 6.28318530717958647692528676f;
 
 #define cast(Type, Expr) ((Type)(Expr))
 #define unused(X) ((void)(X))
+#define dab_unreachable() assert(!"This code should be unreachable...")
 
 
 

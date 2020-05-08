@@ -4,6 +4,8 @@
 #include "wavefront.h"
 #include "bvh.h"
 #include "bvh.cpp"
+#include "mbvh.h"
+#include "mbvh_intersect.cu"
 
 #define PRIME0 100030001
 #define PRIME1 396191693
@@ -147,7 +149,7 @@ __global__ void shade(wavefront::State* state, u32 current,
         const Vector3 scatter_direction = to_world_space(scatter_sample, n, t, b);
 
         const Vector3 p = pathstate.ray_pos + pathstate.t * pathstate.ray_dir;
-        const Ray extend_ray = Ray(p + scatter_direction * 0.0001f, scatter_direction);
+        const Ray extend_ray = Ray(p + scatter_direction * 0.001f, scatter_direction);
 
         const Vector3& brdf = material.color();
 
@@ -163,4 +165,9 @@ __global__ void shade(wavefront::State* state, u32 current,
         buffer[pixel_index] = vec4(pathstate.throughput * material.light_intensity * material.color(), 1.0f);
     } break;
     }
+}
+
+extern "C"
+__global__ void output_to_buffer(wavefront::State* state, Vector4* buffer) {
+    const u32 id = blockIdx.x * blockDim.x + threadIdx.x;
 }

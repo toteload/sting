@@ -564,7 +564,7 @@ struct alignas(16) TriangleIntersection {
 __device__ inline
 TriangleIntersection triangle_intersect(Ray ray, Vector3 v0, Vector3 v1, Vector3 v2) {
     // This value has been empirically found, there is a good chance another value is better :)
-    constexpr f32 TRIANGLE_INTERSECT_EPSILON = 1e-3f;
+    constexpr f32 TRIANGLE_INTERSECT_EPSILON = 0.0001f;
 
     const Vector3 e0 = v1 - v0;
     const Vector3 e1 = v2 - v0;

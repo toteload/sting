@@ -23,6 +23,8 @@
 #include "bvh.cpp"
 #include "mesh.cpp"
 #include "bvh_file.cpp"
+#include "mbvh.h"
+#include "mbvh.cpp"
 
 #include "wavefront.h"
 
@@ -85,11 +87,11 @@ int main(int argc, char** args) {
     unused(args);
 
     Settings settings = {
-        .window_width  = 1920,
-        .window_height = 1080,
+        .window_width  = cast(u32, 1920/1.5),
+        .window_height = cast(u32, 1080/1.5),
 
-        .buffer_width  = 1920/2,
-        .buffer_height = 1080/2,
+        .buffer_width  = cast(u32, 1920/2.0),
+        .buffer_height = cast(u32, 1080/2.0),
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -107,7 +109,7 @@ int main(int argc, char** args) {
                                           SDL_WINDOWPOS_CENTERED,
                                           settings.window_width,
                                           settings.window_height,
-                                          SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                          SDL_WINDOW_OPENGL);// | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
@@ -194,9 +196,9 @@ int main(int argc, char** args) {
        
         for (u32 x = 0; x < 1; x++) {
             for (u32 z = 0; z < 1; z++) {
-                for (u32 i = 0; i < 8; i++) {
+                for (u32 i = 0; i < 1; i++) {
                     const f32 theta = cast(f32, i) / 8.0f * 2.0f * M_PI;
-                    auto sphere_mesh = generate_sphere_mesh(5, 5, 10.0f, vec3(x * 60 + 20.0f * sinf(theta),
+                    auto sphere_mesh = generate_sphere_mesh(8, 8, 10.0f, vec3(x * 60 + 20.0f * sinf(theta),
                                                                                 0.0f,
                                                                                 z * 60 + 20.0f * cosf(theta)),
                                                             0, true);
@@ -214,14 +216,14 @@ int main(int argc, char** args) {
 #endif
       
     std::vector<Material> materials;
-    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 0.1f, .b = 1.0f, });
+    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 1.0f, .b = 1.0f, });
 
     const u64 frequency = SDL_GetPerformanceFrequency();
 
     std::vector<RenderTriangle> triangles;
     std::vector<BVHNode> bvh;
 
-    const char* bvh_filename = "spheres.bvh";
+    const char* bvh_filename = "sponza.bvh";
 
     if (!does_file_exist(bvh_filename)) {
         printf("Could not find bvh file. Rebuilding...\n");
@@ -257,7 +259,8 @@ int main(int argc, char** args) {
     }
 
 #if 0
-    build_mbvh8_for_triangles(triangles.data(), triangles.size());
+    build_mbvh8_for_triangles_and_reorder(triangles.data(), triangles.size());
+    printf("done!\n");
     return 0;
 #endif
 
