@@ -1,18 +1,16 @@
 #include "dab/dab.h"
 #include "stingmath.h"
-#include "camera.h"
-#include "bvh.h"
-#include "bvh.cpp"
 
 surface<void, cudaSurfaceType2D> screen_surface;
 
 #define PRIME0 100030001
 #define PRIME1 396191693
 
+#if 0
 // path tracing with next event estimation
 __device__ Vector3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * triangles, 
-                              Material const * materials, u32 const * lights, u32 light_count, 
-                              Ray ray, RngXor32 rng, Vector4 const * skybox)
+                                 Material const * materials, u32 const * lights, u32 light_count, 
+                                 Ray ray, RngXor32 rng, Vector4 const * skybox)
 {
     Vector3 emission = vec3(0.0f, 0.0f, 0.0f);
     Vector3 throughput = vec3(1.0f, 1.0f, 1.0f);
@@ -44,10 +42,7 @@ __device__ Vector3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * tri
 
             // sample light directly
             // ----------------------------------------------------------------
-            const Vector3 n = triangle_normal_lerp(unpack_normal(tri.n0), 
-                                                   unpack_normal(tri.n1), 
-                                                   unpack_normal(tri.n2), 
-                                                   isect.u, isect.v);
+            const Vector3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const Vector3 p = ray.pos + isect.t * ray.dir;
 
             const u32 random_light_id = lights[rng.random_u32_max(light_count)];
@@ -109,7 +104,7 @@ __device__ Vector3 pathtrace_nee(BVHNode const * bvh, RenderTriangle const * tri
             return emission;
         } break;
         case Material::MIRROR: {
-            const Vector3 n = triangle_normal_lerp(unpack_normal(tri.n0), unpack_normal(tri.n1), unpack_normal(tri.n2), isect.u, isect.v);
+            const Vector3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const Vector3 p = ray.pos + isect.t * ray.dir;
             const Vector3 reflection = reflect(n, ray.dir);
             ray = Ray(p + reflection * 0.0001f, reflection);   
@@ -149,10 +144,7 @@ __device__ Vector3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle co
 
         switch (material.type) {
         case Material::DIFFUSE: { 
-            const Vector3 n = triangle_normal_lerp(unpack_normal(tri.n0), 
-                                                   unpack_normal(tri.n1), 
-                                                   unpack_normal(tri.n2), 
-                                                   isect.u, isect.v);
+            const Vector3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const Vector3 p = ray.pos + isect.t * ray.dir;
 
             const Vector3 scatter_sample = sample_cosine_weighted_hemisphere(rng.random_f32(), rng.random_f32());
@@ -173,10 +165,7 @@ __device__ Vector3 pathtrace_bruteforce_2(BVHNode const * bvh, RenderTriangle co
             return emission;
         } break;
         case Material::MIRROR: {
-            const Vector3 n = triangle_normal_lerp(unpack_normal(tri.n0), 
-                                                unpack_normal(tri.n1), 
-                                                unpack_normal(tri.n2), 
-                                                isect.u, isect.v);
+            const Vector3 n = triangle_normal_lerp(tri.n0, tri.n1, tri.n2, isect.u, isect.v);
             const Vector3 p = ray.pos + isect.t * ray.dir;
             const Vector3 reflection = reflect(n, ray.dir);
             ray = Ray(p + reflection * 0.0001f, reflection);
@@ -243,6 +232,7 @@ __global__ void sample_bruteforce(BVHNode const * bvh, RenderTriangle const * tr
 
     buffer[id] = vec4(c, 1.0f);
 }
+#endif
      
 extern "C"
 __global__ void accumulate_pass(Vector4* frame_buffer, Vector4* accumulator, Vector4* screen_buffer, 
@@ -280,8 +270,7 @@ __global__ void blit_to_screen(Vector4* buffer, uint32_t width, uint32_t height)
 }
  
 // The function below I keep for documentation or something like that. It uses
-// bruteforce pathtracing just like the other not commented out function, but 
-// it doesn't make use of cosine-weighted sampling for simplicity.
+// bruteforce pathtracing, but it doesn't make use of cosine-weighted sampling for simplicity.
 #if 0
 __device__ Vector3 pathtrace_bruteforce(BVHNode const * bvh, RenderTriangle const * triangles, 
                                         Ray ray, RngXor32 rng, Vector4 const * skybox) 

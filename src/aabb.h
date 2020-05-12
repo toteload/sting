@@ -49,7 +49,7 @@ struct alignas(16) AABB {
         }
     }
 
-    __device__ bool intersect(Vector3 ray_pos, Vector3 ray_inv_dir, f32* t_out) const {
+    __device__ bool intersect(const Vector3& ray_pos, const Vector3& ray_inv_dir, f32* t_out) const {
         const Vector3 t1 = (bmin - ray_pos) * ray_inv_dir;
         const Vector3 t2 = (bmax - ray_pos) * ray_inv_dir;
 

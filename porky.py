@@ -8,7 +8,7 @@ import datetime
 # Options
 # --------------------------------------------------------------------------- #
 
-SOURCE_FILES_TO_SCAN = [ "main.cpp", "dab\dab.h", "imgui/imgui_impl_opengl3.cpp" ]
+SOURCE_FILES_TO_SCAN = [ "src/main.cpp", "Z:/dab/dab.h", "ext/imgui/imgui_impl_opengl3.cpp" ]
 GETPROCADDRESS_FUNCTION = "SDL_GL_GetProcAddress"
 VERBOSE = False
 

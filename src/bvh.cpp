@@ -1,5 +1,281 @@
-#include "mbvh.h"
+#include "bvh.h"
+#include "dab/dab.h"
+#include <math.h>
 
+union alignas(16) BVHBuildPrimitive {
+    AABB bounds;
+
+    struct {
+        alignas(16) Vector3 bmin; u32 index;
+        alignas(16) Vector3 bmax;
+    };
+
+    BVHBuildPrimitive() { }
+    BVHBuildPrimitive(const AABB& bounds, u32 index) : bmin(bounds.bmin), index(index), bmax(bounds.bmax) { }
+    BVHBuildPrimitive(const Vector3& bmin, const Vector3& bmax, u32 index) : bmin(bmin), index(index), bmax(bmax) { }
+};
+
+static_assert(sizeof(BVHBuildPrimitive) == sizeof(AABB), "sizes should be the same");
+
+struct PartitionResult {
+    bool should_split;
+    u32 left_count;
+};
+
+PartitionResult partition(BVHBuildPrimitive* aabbs, AABB node_bounds, u32 start, u32 end, u32 bin_count) {
+    f32 lowest_cost = FLT_MAX;
+    f32 split_coord; 
+	u32 split_axis;
+
+    for (u32 bin = 1; bin < bin_count; bin++) {
+        const f32 offset = cast(f32, bin) / bin_count;
+
+        for (u32 axis = 0; axis < 3; axis++) {
+            const f32 split = node_bounds.bmin[axis] + offset * (node_bounds.bmax[axis] - node_bounds.bmin[axis]);
+
+            u32 left_count = 0, right_count = 0;
+            AABB left_bounds = AABB::empty(), right_bounds = AABB::empty();
+
+            for (u32 i = start; i < end; i++) {
+                if (aabbs[i].bounds.centroid()[axis] <= split) {
+                    left_bounds = left_bounds.merge(aabbs[i].bounds);
+                    left_count++;
+                } else {
+                    right_bounds = right_bounds.merge(aabbs[i].bounds);
+                    right_count++;
+                }
+            }
+
+            // Need to do this in the case that all primitives are on one side, which causes the AABB of
+            // the other side to be empty and return a surface area = inf. inf * 0.0f = nan, so we cannot
+            // just multiply.
+			const f32 cost = ((left_count)  ? (left_count  * left_bounds.surface_area())  : 0.0f) +
+							 ((right_count) ? (right_count * right_bounds.surface_area()) : 0.0f);            
+
+			if (cost < lowest_cost) {
+                lowest_cost = cost;
+                split_coord = split;
+                split_axis = axis;
+            }
+        }
+    }
+
+    const f32 current_node_cost = node_bounds.surface_area() * (end - start);
+    if (current_node_cost <= lowest_cost) {
+        return { false, 0 };
+    }
+
+    u32 first_right = start;
+
+    for (u32 i = start; i < end; i++) {
+        if (aabbs[i].bounds.centroid()[split_axis] <= split_coord) {
+            std::swap(aabbs[first_right], aabbs[i]);
+            first_right++;
+        }
+    }
+
+    return { true , first_right - start };
+}
+
+u32 build_recursive(BVHBuildPrimitive* aabbs, std::vector<BVHNode>& nodes, 
+                    u32 start, u32 end, 
+                    u32 this_node, u32 depth,
+                    u32 partition_bin_count, u32 max_prims_in_leaf) 
+{
+    const u32 count = end - start;
+
+    if (count <= max_prims_in_leaf) {
+        // This is a leaf node
+        nodes[this_node].count = count;
+        nodes[this_node].left_first = start;
+        return depth;
+    }
+
+    const PartitionResult result = partition(aabbs, nodes[this_node].bounds, start, end, partition_bin_count);
+
+    u32 mid;
+    if (!result.should_split) {
+        // The partitioning says we should not split since it would increase cost, but we still have more
+        // primitives than we would like to have for this node to be a leaf, so we split anyway.
+        // The splitting we do evenly.
+        mid = start + count / 2;
+    } else {
+        mid = start + result.left_count;
+    }
+
+    const u32 left = nodes.size();
+
+    nodes[this_node].count = 0;
+    nodes[this_node].left_first = left;
+
+    // Reserve a left and right node
+    nodes.push_back({});
+    nodes.push_back({});
+
+    AABB left_bounds = AABB::empty(), right_bounds = AABB::empty();
+    for (u32 i = start; i < mid; i++) {
+        left_bounds = left_bounds.merge(aabbs[i].bounds);
+    }
+
+    for (u32 i = mid; i < end; i++) {
+        right_bounds = right_bounds.merge(aabbs[i].bounds);
+    }
+
+    nodes[left  ].bounds = left_bounds;
+    nodes[left+1].bounds = right_bounds;
+
+    const u32 depth_left = build_recursive(aabbs, nodes, 
+                                           start, mid, 
+                                           left, depth + 1, 
+                                           partition_bin_count, max_prims_in_leaf);
+    const u32 depth_right = build_recursive(aabbs, nodes, 
+                                            mid, end, 
+                                            left + 1, depth + 1, 
+                                            partition_bin_count, max_prims_in_leaf);
+
+    return max(depth_left, depth_right);
+}
+
+BVHBuildResult build_bvh(AABB const * aabbs, u32 aabb_count, u32 partition_bin_count, u32 max_prims_in_leaf) {
+    std::vector<BVHBuildPrimitive> build_prims(aabb_count);
+    AABB root_bounds = AABB::empty();
+    for (u32 i = 0; i < aabb_count; i++) {
+        build_prims[i] = BVHBuildPrimitive(aabbs[i], i);
+        root_bounds = root_bounds.merge(aabbs[i]);
+    }
+
+    std::vector<BVHNode> nodes;
+    nodes.push_back({});
+    nodes[0].bounds = root_bounds;
+
+    build_recursive(build_prims.data(), nodes,
+                    0, aabb_count,
+                    0, 0,
+                    partition_bin_count, max_prims_in_leaf);
+
+    if (nodes.size() > 1) {
+        nodes[0].count = 0;
+        nodes[0].left_first = 1;
+    }
+
+    std::vector<u32> prim_order(aabb_count);
+    for (u32 i = 0; i < aabb_count; i++) {
+        prim_order[i] = build_prims[i].index;
+    }
+
+    return { .bvh        = nodes,
+             .prim_order = prim_order, };
+}
+
+std::vector<BVHNode> build_bvh_for_triangles_and_reorder(std::vector<Vector4>& triangles, 
+                                                         u32 partition_bin_count, 
+                                                         u32 max_primitives_in_leaf) 
+{
+    const u32 triangle_count = triangles.size() / 3;
+    std::vector<AABB> aabbs(triangle_count);
+    for (u32 i = 0; i < triangle_count; i++) {
+        aabbs[i] = AABB::for_triangle(vec3(triangles[i * 3    ]),
+                                      vec3(triangles[i * 3 + 1]),
+                                      vec3(triangles[i * 3 + 2]));
+    }
+
+    BVHBuildResult result = build_bvh(aabbs.data(), triangle_count, partition_bin_count, max_primitives_in_leaf);
+
+    // Reorder the triangles
+    std::vector<Vector4> tmp(triangles);
+    for (u32 i = 0; i < triangle_count; i++) {
+        triangles[i * 3    ] = tmp[result.prim_order[i] * 3    ];
+        triangles[i * 3 + 1] = tmp[result.prim_order[i] * 3 + 1];
+        triangles[i * 3 + 2] = tmp[result.prim_order[i] * 3 + 2];
+    }
+    
+    return result.bvh;
+}
+
+CBVH compress_bvh(std::vector<BVHNode> bvh) {
+    const Vector3 origin = bvh[0].bounds.bmin;
+
+    const u8 ex = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.x - bvh[0].bounds.bmin.x) / 65535.0f)));
+    const u8 ey = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.y - bvh[0].bounds.bmin.y) / 65535.0f)));
+    const u8 ez = cast(u8, 127.0f + ceil(log2((bvh[0].bounds.bmax.z - bvh[0].bounds.bmin.z) / 65535.0f)));
+
+    const f32 fex = Float32(0, ex, 0).as_f32();
+    const f32 fey = Float32(0, ey, 0).as_f32();
+    const f32 fez = Float32(0, ez, 0).as_f32();
+
+    std::vector<CBVHNode> cbvh;
+    cbvh.reserve(bvh.size());
+    
+    for (u32 i = 0; i < bvh.size(); i++) {
+        const Vector3 bmin = bvh[i].bmin - origin;
+        const Vector3 bmax = bvh[i].bmax - origin;
+
+        const u16 bminx = cast(u16, floor(bmin.x / fex));
+        const u16 bminy = cast(u16, floor(bmin.y / fey));
+        const u16 bminz = cast(u16, floor(bmin.z / fez));
+
+        const u16 bmaxx = cast(u16, ceil(bmax.x / fex));
+        const u16 bmaxy = cast(u16, ceil(bmax.y / fey));
+        const u16 bmaxz = cast(u16, ceil(bmax.z / fez));
+
+        const u32 meta = (bvh[i].count << 28) | (bvh[i].left_first & 0x0fffffff);
+
+        cbvh.push_back({ bminx, bminy, bminz, bmaxx, bmaxy, bmaxz, meta });
+    }
+
+    return { .data = { origin, ex, ey, ez, 0, }, .nodes = cbvh };
+}
+ 
+struct BVHFileHeader {
+    u32 magic;
+    u32 triangle_vertex_count;
+    u32 node_count;
+};
+
+constexpr u32 BVHFILEHEADER_MAGIC_VALUE = 0x7073104D;
+
+bool save_bvh_object(const char* filename,
+                     BVHNode const * nodes, u32 node_count,
+                     Vector4 const * triangles, u32 triangle_vertex_count)
+{
+    FILE* f = fopen(filename, "wb");
+    if (!f) { return false; }
+
+    BVHFileHeader header;
+    header.magic = BVHFILEHEADER_MAGIC_VALUE;
+    header.triangle_vertex_count = triangle_vertex_count;
+    header.node_count = node_count;
+
+    fwrite(&header, 1, sizeof(header), f);
+    fwrite(nodes, 1, node_count * sizeof(BVHNode), f);
+    fwrite(triangles, 1, triangle_vertex_count * sizeof(Vector4), f);
+
+    fclose(f);
+
+    return true;
+}
+
+BVHObject load_bvh_object(void const * data) {
+    BVHObject obj;
+    obj.valid = false;
+
+    BVHFileHeader* header = cast(BVHFileHeader*, data);
+    if (header->magic != BVHFILEHEADER_MAGIC_VALUE) {
+        return obj;
+    }
+
+    BVHNode const * nodes = cast(BVHNode*, header + 1);
+    Vector4 const * triangles = cast(Vector4*, nodes + header->node_count);
+
+    obj.bvh.resize(header->node_count);
+    obj.triangles.resize(header->triangle_vertex_count);
+    memcpy(obj.bvh.data(), nodes, header->node_count * sizeof(BVHNode));
+    memcpy(obj.triangles.data(), triangles, header->triangle_vertex_count * sizeof(Vector4));
+    obj.valid = true;
+
+    return obj;
+}
+ 
 struct MBVHBuildNode {
     struct ChildNode {
         enum Type { Leaf, Internal, Empty, } type;
@@ -208,9 +484,6 @@ void build(std::vector<MBVHBuildNode>& mbvh,
         const u32 left  = bvh[bvh_node].left_first;
         const u32 right = left + 1;
 
-        //printf("INTERNAL, leftopt: %d, rightopt: %d, left: %d, right: %d\n",
-        //       left_option, right_option, left, right);
-
         build(mbvh, bvh, cost_bvh, triangle_index, mbvh_index, left,  left_option);
         build(mbvh, bvh, cost_bvh, triangle_index, mbvh_index, right, right_option);
     } break;
@@ -220,13 +493,10 @@ void build(std::vector<MBVHBuildNode>& mbvh,
         const u32 left  = bvh[bvh_node].left_first;
         const u32 right = left + 1;
                                                        
-        //printf("DISTRIBUTE, leftopt: %d, rightopt: %d, left: %d, right: %d\n",
-        //       left_option, right_option, left, right);
-                                                      
         build(mbvh, bvh, cost_bvh, triangle_index, mbvh_parent, left,  left_option);
         build(mbvh, bvh, cost_bvh, triangle_index, mbvh_parent, right, right_option);
     } break;
-    default: { dab_unreachable(); } break;
+    default: { DAB_UNREACHABLE(); } break;
     }
 }
 
@@ -261,7 +531,7 @@ BuildStep build_mbvh_from_buildnodes(const std::vector<MBVHBuildNode>& build_nod
             imask |= 1 << i;
         } break;
         case MBVHBuildNode::ChildNode::Empty: break;
-        default: dab_unreachable(); break;
+        default: DAB_UNREACHABLE(); break;
         }
     }
 
@@ -403,12 +673,13 @@ MBVHBuildResult build_mbvh8(AABB const * aabbs, u32 aabb_count) {
     return ret;
 }
 
-std::vector<MBVH8Node> build_mbvh8_for_triangles_and_reorder(RenderTriangle* triangles, u32 triangle_count) {
+std::vector<MBVH8Node> build_mbvh8_for_triangles_and_reorder(std::vector<Vector4> triangles) {
+    const u32 triangle_count = triangles.size() / 3;
     std::vector<AABB> aabbs(triangle_count);
     for (u32 i = 0; i < triangle_count; i++) {
-        aabbs[i] = AABB::for_triangle(triangles[i].v0,
-                                      triangles[i].v1,
-                                      triangles[i].v2);
+        aabbs[i] = AABB::for_triangle(vec3(triangles[i * 3    ]),
+                                      vec3(triangles[i * 3 + 1]),
+                                      vec3(triangles[i * 3 + 2]));
     }
 
     MBVHBuildResult result = build_mbvh8(aabbs.data(), aabbs.size());
@@ -416,9 +687,11 @@ std::vector<MBVH8Node> build_mbvh8_for_triangles_and_reorder(RenderTriangle* tri
     printf("Reordering triangles...\n");
  
     // Reorder the triangles
-    std::vector<RenderTriangle> tmp(triangles, triangles + triangle_count);
+    std::vector<Vector4> tmp(triangles);
     for (u32 i = 0; i < triangle_count; i++) {
-        triangles[i] = tmp[result.prim_order[i]];
+        triangles[i * 3    ] = tmp[result.prim_order[i * 3    ]];
+        triangles[i * 3 + 1] = tmp[result.prim_order[i * 3 + 1]];
+        triangles[i * 3 + 2] = tmp[result.prim_order[i * 3 + 2]];
     }
 
     return result.mbvh;

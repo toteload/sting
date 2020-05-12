@@ -8,6 +8,7 @@
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 #include <cudaGL.h>
+#include <vector>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -19,21 +20,18 @@
 #include "porky_load.cpp"
 #include "stingmath.h"
 #include "camera.h"
+#include "mesh.cpp"
 #include "bvh.h"
 #include "bvh.cpp"
-#include "mesh.cpp"
-#include "bvh_file.cpp"
-#include "mbvh.h"
-#include "mbvh.cpp"
 
 #include "wavefront.h"
 
 #define IMGUI_IMPL_OPENGL_LOADER_CUSTOM "porky_load.h"
-#include "imgui/imconfig.h"
-#include "imgui/imgui.h"
-#include "imgui/imgui_internal.h"
-#include "imgui/imgui_impl_sdl.h"
-#include "imgui/imgui_impl_opengl3.h"
+#include "ext/imgui/imconfig.h"
+#include "ext/imgui/imgui.h"
+#include "ext/imgui/imgui_internal.h"
+#include "ext/imgui/imgui_impl_sdl.h"
+#include "ext/imgui/imgui_impl_opengl3.h"
 #include "dragfloatprecise.cpp"
 
 const uint32_t STING_VERSION_MAJOR = 0;
@@ -83,15 +81,15 @@ struct Settings {
 };
 
 int main(int argc, char** args) {
-    unused(argc); 
-    unused(args);
+    DAB_UNUSED(argc); 
+    DAB_UNUSED(args);
 
     Settings settings = {
         .window_width  = cast(u32, 1920/1.5),
         .window_height = cast(u32, 1080/1.5),
 
-        .buffer_width  = cast(u32, 1920/2.0),
-        .buffer_height = cast(u32, 1080/2.0),
+        .buffer_width  = cast(u32, 1920/3.0),
+        .buffer_height = cast(u32, 1080/3.0),
     };
 
     if (SDL_Init(SDL_INIT_EVERYTHING)) {
@@ -129,27 +127,47 @@ int main(int argc, char** args) {
 
     CUDA_CHECK(cuInit(0));
 
+    i32 cuda_device_count = 0;
+    CUDA_CHECK(cuDeviceGetCount(&cuda_device_count));
+
     CUdevice device;
     CUcontext context;
     CUDA_CHECK(cuDeviceGet(&device, 0));
     CUDA_CHECK(cuCtxCreate(&context, 0, device));
 
+    i32 sm_count, max_threads_per_sm, max_threads_per_block, warp_size;
+    CUDA_CHECK(cuDeviceGetAttribute(&sm_count, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device));
+    CUDA_CHECK(cuDeviceGetAttribute(&max_threads_per_sm, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, device));
+    CUDA_CHECK(cuDeviceGetAttribute(&max_threads_per_block, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, device));
+    CUDA_CHECK(cuDeviceGetAttribute(&warp_size, CU_DEVICE_ATTRIBUTE_WARP_SIZE, device));
+
+    printf("SM count: %d\n"
+           "max threads per SM: %d\n"
+           "max threads per block: %d\n"
+           "warp size: %d\n"
+           , 
+           sm_count, 
+           max_threads_per_sm,
+           max_threads_per_block,
+           warp_size);
+
     CUmodule pathtrace_ptx, wavefront_ptx;
     CUDA_CHECK(cuModuleLoad(&pathtrace_ptx, "pathtrace.ptx"));
     CUDA_CHECK(cuModuleLoad(&wavefront_ptx, "wavefront.ptx"));
 
-    CUfunction render_bruteforce, render_nee, accumulate, blit_to_screen;
-    CUDA_CHECK(cuModuleGetFunction(&render_nee,        pathtrace_ptx, "sample_nee"));
-    CUDA_CHECK(cuModuleGetFunction(&render_bruteforce, pathtrace_ptx, "sample_bruteforce"));
+    CUfunction accumulate, blit_to_screen;
     CUDA_CHECK(cuModuleGetFunction(&accumulate,        pathtrace_ptx, "accumulate_pass"));
     CUDA_CHECK(cuModuleGetFunction(&blit_to_screen,    pathtrace_ptx, "blit_to_screen"));
 
-    CUfunction reset, generate_primary_rays, extend_rays, extend_rays_compressed, shade;
+    CUfunction reset, generate_primary_rays, extend_rays, extend_rays_compressed, shade, output_to_buffer;
+    CUfunction extend_rays_compressed_fetch;
     CUDA_CHECK(cuModuleGetFunction(&reset,                  wavefront_ptx, "reset"));
     CUDA_CHECK(cuModuleGetFunction(&generate_primary_rays,  wavefront_ptx, "generate_primary_rays"));
     CUDA_CHECK(cuModuleGetFunction(&extend_rays,            wavefront_ptx, "extend_rays"));
     CUDA_CHECK(cuModuleGetFunction(&extend_rays_compressed, wavefront_ptx, "extend_rays_compressed"));
+    CUDA_CHECK(cuModuleGetFunction(&output_to_buffer,       wavefront_ptx, "output_to_buffer"));
     CUDA_CHECK(cuModuleGetFunction(&shade,                  wavefront_ptx, "shade"));
+    CUDA_CHECK(cuModuleGetFunction(&extend_rays_compressed_fetch, wavefront_ptx, "extend_rays_compressed_fetch"));
 
     CUsurfref screen_surface;
     cuModuleGetSurfRef(&screen_surface, pathtrace_ptx, "screen_surface");
@@ -188,51 +206,45 @@ int main(int argc, char** args) {
 
     // Loading in triangle mesh, building bvh and uploading to GPU
     // --------------------------------------------------------------------- //
-
+ 
+    std::vector<Vector4> triangles;
+    std::vector<BVHNode> bvh;
+    
 #if 0
     // Create some spheres and save them to a file
     {
-        std::vector<RenderTriangle> triangles;
-       
         for (u32 x = 0; x < 1; x++) {
             for (u32 z = 0; z < 1; z++) {
                 for (u32 i = 0; i < 1; i++) {
                     const f32 theta = cast(f32, i) / 8.0f * 2.0f * M_PI;
-                    auto sphere_mesh = generate_sphere_mesh(8, 8, 10.0f, vec3(x * 60 + 20.0f * sinf(theta),
-                                                                                0.0f,
-                                                                                z * 60 + 20.0f * cosf(theta)),
-                                                            0, true);
-                    triangles.insert(triangles.end(), sphere_mesh.begin(), sphere_mesh.end());
+                    triangles = generate_sphere_mesh(8, 8, 10.0f, vec3(x * 60 + 20.0f * sinf(theta),
+                                                                       0.0f,
+                                                                       z * 60 + 20.0f * cosf(theta)));
                 }
             }
         }
 
-        auto bvh = build_bvh_for_triangles_and_reorder(triangles.data(), triangles.size(), 12, 5);
+        bvh = build_bvh_for_triangles_and_reorder(triangles, 12, 5);
         
-        printf("%llu sphere triangles\n", triangles.size());
+        printf("%llu sphere triangles\n", triangles.size() / 3);
         
         save_bvh_object("spheres.bvh", bvh.data(), bvh.size(), triangles.data(), triangles.size());
     }
 #endif
       
-    std::vector<Material> materials;
-    materials.push_back({ .type = Material::DIFFUSE, .r = 1.0f, .g = 1.0f, .b = 1.0f, });
-
     const u64 frequency = SDL_GetPerformanceFrequency();
 
-    std::vector<RenderTriangle> triangles;
-    std::vector<BVHNode> bvh;
-
+#if 1
     const char* bvh_filename = "sponza.bvh";
 
     if (!does_file_exist(bvh_filename)) {
         printf("Could not find bvh file. Rebuilding...\n");
 
-        triangles = load_mesh_from_obj_file("data/sponza.obj", 0);
-        printf("%llu RenderTriangles created...\n", triangles.size());
+        triangles = load_mesh_from_obj_file("data/sponza.obj");
+        printf("%llu RenderTriangles created...\n", triangles.size() / 3);
 
         const u64 start_time = SDL_GetPerformanceCounter();
-        bvh = build_bvh_for_triangles_and_reorder(triangles.data(), triangles.size(), 12, 5);
+        bvh = build_bvh_for_triangles_and_reorder(triangles, 12, 5);
         const u64 end_time = SDL_GetPerformanceCounter();
      
         printf("Created %llu bvh nodes in %f ms...\n", 
@@ -257,6 +269,7 @@ int main(int argc, char** args) {
 
         free(bvh_data);
     }
+#endif
 
 #if 0
     build_mbvh8_for_triangles_and_reorder(triangles.data(), triangles.size());
@@ -269,16 +282,14 @@ int main(int argc, char** args) {
     const u64 compression_end = SDL_GetPerformanceCounter();
     printf("Compressed bvh in %f ms...\n", 1000 * cast(f32, compression_end - compression_start) / frequency);
     
-    CUdeviceptr gpu_triangles, gpu_bvh, gpu_cbvh, gpu_materials;//, gpu_lights;
-    CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size()  * sizeof(RenderTriangle)));
+    CUdeviceptr gpu_triangles, gpu_bvh, gpu_cbvh;
+    CUDA_CHECK(cuMemAlloc(&gpu_triangles, triangles.size()  * sizeof(Vector4)));
     CUDA_CHECK(cuMemAlloc(&gpu_bvh,       bvh.size()        * sizeof(BVHNode)));
     CUDA_CHECK(cuMemAlloc(&gpu_cbvh,      cbvh.nodes.size() * sizeof(CBVHNode)));
-    CUDA_CHECK(cuMemAlloc(&gpu_materials, materials.size()  * sizeof(Material)));
 
-    CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(),  triangles.size()  * sizeof(RenderTriangle)));
+    CUDA_CHECK(cuMemcpyHtoD(gpu_triangles, triangles.data(),  triangles.size()  * sizeof(Vector4)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_bvh,       bvh.data(),        bvh.size()        * sizeof(BVHNode)));
     CUDA_CHECK(cuMemcpyHtoD(gpu_cbvh,      cbvh.nodes.data(), cbvh.nodes.size() * sizeof(CBVHNode)));
-    CUDA_CHECK(cuMemcpyHtoD(gpu_materials, materials.data(),  materials.size()  * sizeof(Material)));
 
     // Skybox loading
     // --------------------------------------------------------------------- //
@@ -442,9 +453,9 @@ int main(int argc, char** args) {
 
             camera.update_uvw();
         }
+#else
+        if (frame_count == 40) { break; }
 #endif
-
-        //if (frame_count == 40) { break; }
 
         wavefront::State wavefront_state_values;
         wavefront_state_values.total_ray_count = 0;
@@ -457,7 +468,7 @@ int main(int argc, char** args) {
         CUDA_CHECK(cuMemcpyHtoD(wavefront_state, &wavefront_state_values, sizeof(wavefront::State)));
         CUDA_CHECK(cuMemsetD8(frame_buffer, 0, settings.buffer_width * settings.buffer_height * sizeof(Vector4)));
 
-        const u32 block_x = 128;
+        const u32 block_x = 64;
         const u32 grid_x = (settings.buffer_width * settings.buffer_height + block_x - 1) / block_x;
 
         const u64 wavefront_start_time = SDL_GetPerformanceCounter();
@@ -489,14 +500,37 @@ int main(int argc, char** args) {
                 &current,
             };
 
-            cuLaunchKernel(reset,
+            CUDA_CHECK(cuLaunchKernel(reset,
                            1, 1, 1,
                            1, 1, 1,
                            0,
                            0,
                            reset_params,
-                           NULL);
+                           NULL));
+             
+#if 0
+            {
+                const u32 block_x = 32;
+                const u32 grid_x = 512;
+                                                                         
+                void* extend_rays_params[] = {
+                    &wavefront_state,
+                    &current,
+                    &cbvh.data,
+                    &gpu_cbvh,
+                    &gpu_triangles,
+                };
+                CUDA_CHECK(cuLaunchKernel(extend_rays_compressed_fetch, 
+                                          grid_x, 1, 1, 
+                                          block_x, 1, 1, 
+                                          0, 
+                                          0, 
+                                          extend_rays_params, 
+                                          NULL));
+            }
+#endif
 
+#if 1
             void* extend_rays_params[] = {
                 &wavefront_state, 
                 &current, 
@@ -512,13 +546,12 @@ int main(int argc, char** args) {
                                       0, 
                                       extend_rays_params, 
                                       NULL));
+#endif
 
             void* shade_params[] = {
                 &wavefront_state, 
                 &current, 
                 &gpu_triangles, 
-                &gpu_materials,
-                &frame_buffer,
             };
 
             CUDA_CHECK(cuLaunchKernel(shade, 
@@ -532,18 +565,33 @@ int main(int argc, char** args) {
             current ^= 1;
         }
 
+        void* output_to_buffer_params[] = {
+            &wavefront_state,
+            &frame_buffer,
+            &settings.buffer_width,
+            &settings.buffer_height,
+        };
+
+        CUDA_CHECK(cuLaunchKernel(output_to_buffer,
+                       grid_x, 1, 1,
+                       block_x, 1, 1,
+                       0,
+                       0,
+                       output_to_buffer_params,
+                       NULL));
+
         void* reset_params[] = {
             &wavefront_state,
             &current,
         };
 
-        cuLaunchKernel(reset,
+        CUDA_CHECK(cuLaunchKernel(reset,
                        1, 1, 1,
                        1, 1, 1,
                        0,
                        0,
                        reset_params,
-                       NULL);
+                       NULL));
 
         CUDA_CHECK(cuMemcpyDtoH(&wavefront_state_values, wavefront_state, sizeof(wavefront::State)));
 
@@ -560,7 +608,7 @@ int main(int argc, char** args) {
             void* accumulate_params[] = {
                 &frame_buffer, &accumulator, &screen_buffer, &settings.buffer_width, &settings.buffer_height, &acc_frame,
             };
-            cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL);
+            CUDA_CHECK(cuLaunchKernel(accumulate, grid_x, grid_y, 1, block_x, block_y, 1, 0, 0, accumulate_params, NULL));
         }
 
         {
